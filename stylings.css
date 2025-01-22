@@ -39,11 +39,14 @@
 @keyframes intro-loading {
   from {
     visibility: visible;
+    position: absolute;
+    text-wrap-mode: nowrap;
   }
   to {
     visibility: hidden;
     display: none;
-    width: 0;
+    position: absolute;
+    text-wrap-mode: nowrap;
   }
 }
 body, html {
@@ -145,12 +148,18 @@ a:visited {
   animation-duration: 0s;
   animation-fill-mode: forwards;
   visibility: hidden;
+  position: relative;
 }
 .intro-list li span {
   animation-name: intro-loading;
   animation-duration: 0.1s;
   animation-fill-mode: forwards;
   visibility: hidden;
+  position: absolute;
+  text-wrap-mode: nowrap;
+}
+.intro-list li span:last-child {
+  position: relative;
 }
 
 
