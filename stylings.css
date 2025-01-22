@@ -57,13 +57,13 @@ body {
 h1, .title {
   font-size: xx-large;
   color: black;
-  text-shadow: 0px 0px var(--themeColor), 0px 0px 2px var(--themeColor), 0px 0px 10px var(--transparentThemeColor);
+  text-shadow: 1px 1px var(--themeColor), 0px 0px 2px var(--themeColor), 0px 0px 10px var(--transparentThemeColor);
 }
 
 .title-link {
   font-size: xx-large;
   color: black;
-  text-shadow: 0px 0px var(--linkColor), 0px 0px 2px var(--linkColor), 0px 0px 10px var(--transparentThemeColor);
+  text-shadow: 1px 1px var(--linkColor), 0px 0px 2px var(--linkColor), 0px 0px 10px var(--transparentThemeColor);
 }
 
 p {
