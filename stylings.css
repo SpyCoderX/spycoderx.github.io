@@ -2,7 +2,7 @@
   --themeColor: #50ff50;
   --darkThemeColor: #204420;
   --transparentThemeColor: rgba(80, 255, 80, 0.3137254902);
-  --introDisplay: inherit; /* Either none or inherit */
+  --introDisplay: none; /* Either none or inherit */
   --background: black;
   --linkColor: #00ffaa;
   --visitedLinkColor: #00dd88;
