@@ -107,6 +107,9 @@ class Vector {
     static random(scale=1) {
         return new Vector(Math.random(),Math.random).mul(scale);
     }
+    static minmax(min,value,max) {
+        return new Vector(Math.min(Math.max(value.x,min.x),max.x), Math.min(Math.max(value.y,min.y),max.y))
+    }
 
     angleTo(other) {
         return Math.atan2(
@@ -131,32 +134,50 @@ class Vector {
         this.y = y;
         return this;
     }
+
+    normalize() {
+        const len = this.length();
+        this.x /= len;
+        this.y /= len;
+        return this;
+    }
+    length() {
+        return Math.sqrt(this.x*this.x + this.y*this.y);
+    }
+    lengthSqr() {
+        return this.x*this.x + this.y*this.y;
+    }
+    angle() {
+        return Math.atan2(
+            this.y,
+            this.x
+        )
+    }
 }
 
 class Trace {
     points = [];
     vels = [];
     age = 1;
-    maxLifetime = 30;
-    constructor(_start,_end,_spacing=35,_initialMovement=0) {
-        const dist = new Vector(_start).distance(_end);
+    maxLifetime = 90;
+    constructor(_start,_end,_initialMovement=new Vector(),_spacing=35) {
+        const dist = _start.distance(_end);
+        const dir = _end.sub(_start).div(dist).mul(3);
         for (let i = 0; i < 1; i += _spacing/dist) {
-            const pos = new Vector(_start).mul(1-i).add(new Vector(_end).mul(i))
+            const pos = _start.mul(1-i).add(_end.mul(i))
             this.points.push(pos);
-            this.vels.push(Vector.randomOnCircle());
+            this.vels.push(Vector.randomOnCircle().add(_initialMovement).add(dir.mul(i?1:0)));
 
         }
         this.points.push(_end.copy());
-        this.vels.push(Vector.randomOnCircle());
-        for (let i = 0; i < _initialMovement; i++) {
-            this.move();
-        }
+        this.vels.push(Vector.randomOnCircle().add(_initialMovement.add(dir)));
+    
     }
     move() {
         for (let i = 0; i < this.points.length; i++) {
             const p = this.points[i];
             const v = this.vels[i];
-            p.addMe(v.mul(5 / this.age + 0.4).mul(0.3));
+            p.addMe(v.mul(5 / this.age + 0.5).mul(0.3));
         }
     }
     tick() {
@@ -164,7 +185,11 @@ class Trace {
         this.age += 1;
     }
     render() {
-        game.drawLongLine(`rgba(250,220,110,${1 / (this.age) - (this.age / (this.maxLifetime*this.maxLifetime))})`,this.points,1.8 / this.age + 0.6);
+        if (this.age <= 6) {
+            game.drawLongLine(false,`rgba(250,220,150,0.2)`,[this.points[0],this.points[this.points.length-1]],3 / (this.age / 2)**2);
+            game.drawLongLine(false,`rgba(250,220,150,0.2)`,[this.points[0],this.points[this.points.length-1]],2 / (this.age / 2)**2);
+        }
+        game.drawLongLine(false,`rgba(255,255,255,${1 / (this.age) - (this.age / (this.maxLifetime*this.maxLifetime))})`,this.points,1.3 / this.age + 0.6);
     }
 }
 
@@ -176,9 +201,23 @@ class Player {
     collider = new Vector(30,20);
     rot = 0;
     weaponCooldown = 0;
+    HP;
+    MaxHP = 20;
+    invulnerabilityTicks = 0;
+    constructor() {
+        this.HP = this.MaxHP;
+    }
+    damage(n) {
+        if (this.invulnerabilityTicks > 0){
+            return;
+        }
+        this.HP -= n;
+        this.invulnerabilityTicks = 20;
+    }
 }
 class Zombie {
     pos = new Vector();
+    vel = new Vector();
     size = new Vector(60);
     collider = new Vector(25,50);
     rot = 0;
@@ -188,8 +227,9 @@ class Zombie {
         this.pos = _pos.copy();
         this.HP = this.MaxHP;
     }
-    damage(n) {
+    damage(n,src,force=3) {
         this.HP -= n;
+        this.vel.addMe(this.pos.sub(src).normalize().mul(force));
     }
 }
 
@@ -197,11 +237,12 @@ class Game {
     center = new Vector();
     camera = new Vector();
     mouse = new Vector();
+    scroll = new Vector();
     followMouse = new Vector();
     player = new Player();
     keys = {};
     ticks = 0;
-    mouseAction = "none";
+    paused = false;
 
     getSmoothMousePos() {
         return this.followMouse.add(this.camera.sub(this.player.pos));
@@ -210,22 +251,42 @@ class Game {
         return this.mouse.add(this.camera.sub(this.player.pos));
     }
 
+    restart() {
+        this.player = new Player();
+        zombies.length = 0; // Seems weird, but JS jank ig?
+        traces.length = 0;
+    }
+
     update() {
-        if (this.getKey("mouse") == true) {
-            if (this.mouseAction == "none") {
-                this.mouseAction = "press";
+        for (const key in this.keys) {
+            let state = this.getKeyState(key);
+            if (this.getKey(key) == true) {
+                if (this.getKeyState(key) == "none") {
+                    state = "press";
+                }
+                else if (this.getKeyState(key) == "press") {
+                    state = "hold";
+                } 
+            } else {
+                if (this.getKeyState(key) == "release") {
+                    state = "none";
+                }
+                else if (this.getKeyState(key) == "press" || this.getKeyState(key) == "hold") {
+                    state = "release";
+                }
             }
-            else if (this.mouseAction == "press") {
-                this.mouseAction = "hold";
-            } 
-        } else {
-            if (this.mouseAction == "release") {
-                this.mouseAction = "none";
-            }
-            else if (this.mouseAction == "press" || this.mouseAction == "hold") {
-                this.mouseAction = "release";
-            }
+            this.keys[key].state = state;
+            
         }
+        if (this.getKeyState('p') == "press") {
+            this.pause = !this.pause;
+        }
+        const inputMap = new Vector(this.getKey("d") - this.getKey("a"), this.getKey("s") - this.getKey("w"));;
+        if (this.pause) {
+            this.camera.addMe(inputMap.mul(8));
+            return;
+        }
+        
         this.ticks += 1;
         if (this.ticks%30 == 0) {
             zombies.push(new Zombie(this.player.pos.add(Vector.fromPolar(600,Math.random()*Math.PI*2))))
@@ -235,7 +296,7 @@ class Game {
         this.followMouse.mulMe(0.8);
         this.followMouse.addMe(this.mouse.mul(0.2));
 
-        this.player.inputMap = new Vector(this.getKey("d") - this.getKey("a"), this.getKey("s") - this.getKey("w"));
+        this.player.inputMap = inputMap;
         this.player.vel.addMe(this.player.inputMap);
         this.player.vel.mulMe(0.8);
         this.player.pos.addMe(this.player.vel);
@@ -250,13 +311,45 @@ class Game {
         for (let i = 0; i < zombies.length; i++) {
             const zomb = zombies[i];
             zomb.rot = zomb.pos.angleTo(this.player.pos);
-            zomb.pos.addMe(Vector.fromPolar(2,zomb.rot))
+            zomb.vel.addMe(Vector.fromPolar(0.5,zomb.rot))
+        }
+        for (let n = 0; n < 2; n++) {
+            for (let i = 0; i < zombies.length; i++) {
+                const zomb = zombies[i];
+                for (let j = 0; j < zombies.length; j++) {
+                    const otherZomb = zombies[j];
+                    if (otherZomb == zomb) continue;
+                    const p1 = zomb.pos.add(zomb.vel.div(4));
+                    const p2 = otherZomb.pos.add(otherZomb.vel.div(4));
+                    const targetLen = (zomb.collider.length() + otherZomb.collider.length()) / 2.0;
+                    const len = p1.distance(p2);
+                    if (len < targetLen) {
+                        let dir = p2.angleTo(p1);
+                        dir = Vector.fromPolar((targetLen - len) / 8,dir);
+                        zomb.vel.addMe(dir);
+                        otherZomb.vel.subMe(dir);
+                    }
+                }
+            }
+
+            for (let i = 0; i < zombies.length; i++) {
+                const zomb = zombies[i];
+                zomb.pos.addMe(zomb.vel.div(2));
+                zomb.vel.mulMe(Math.pow(0.7,0.5)); // 4th root of 0.7
+                
+            }
+        }
+         for (let i = 0; i < zombies.length; i++) {
+            const zomb = zombies[i];
             if (zomb.HP <= 0) {
                 zombies.splice(i,1);
                 i--;
+            } else {
+                if (zomb.pos.distance(this.player.pos) < (zomb.collider.length()) / 2) {
+                    this.player.damage(1);
+                }
             }
         }
-
 
         for (let i = 0; i < traces.length; i++) {
             const trace = traces[i];
@@ -266,16 +359,16 @@ class Game {
                 i--;
             }
         }
-        if ((this.mouseAction == "press" || this.mouseAction == "hold") && this.player.weaponCooldown == 0) {
+        if ((this.getKeyState('mouse') == "press" || this.getKeyState('mouse') == "hold") && this.player.weaponCooldown == 0) {
             //bullets.push(new Bullet(this.player.pos,this.player.rot));
             for (let i = 0; i < 1; i++) {
                 const start = this.player.pos;
-                const max = Vector.fromPolar(1000,new Vector().angleTo(this.getMousePos()) + (Math.random() - 0.5)*0.05).add(this.player.pos);
+                const max = Vector.fromPolar(1200,new Vector().angleTo(this.getMousePos()) + (Math.random() - 0.5)*0.05).add(this.player.pos);
                 const {pos:end,entity:hit} = this.rayTraceEnemies(start,max);
                 if (hit != null) {
-                    hit.damage(1)
+                    hit.damage(1,this.player.pos)
                 }
-                const trace = new Trace(start,end);
+                const trace = new Trace(start,end,this.player.vel);
                 traces.push(trace)
             }
             this.player.weaponCooldown = 10;
@@ -283,7 +376,12 @@ class Game {
         if (this.player.weaponCooldown > 0) {
             this.player.weaponCooldown -= 1;
         }
-        
+        if (this.player.invulnerabilityTicks > 0) {
+            this.player.invulnerabilityTicks -= 1;
+        }
+        if (this.player.HP <= 0) {
+            this.restart();
+        }
     }
 
     rayTraceEnemies(_start,_end) {
@@ -332,12 +430,11 @@ class Game {
         return closest;
     }
 
-    getKey(key) {
-        return this.keys[key] ?? false;
-    }
+    
 
 
-    draw(image,location,size,rot=0,upwards=false) {
+    draw(isUI,image,location,size,rot=0,upwards=false) {
+        if (isUI) location = location.add(this.camera);
         if (image.complete && image.naturalWidth == 0) {
             this.drawBox('red',location,size,rot,upwards);
             return;
@@ -355,7 +452,8 @@ class Game {
         ctx.restore();
     }
 
-    drawBox(color,location,size,rot=0,upwards=false,width=1) {
+    drawBox(isUI,color,location,size,rot=0,upwards=false,width=1) {
+        if (isUI) location = location.add(this.camera);
         ctx.save();
         const offset = this.center.div(2).add(location).sub(this.camera);
         ctx.translate(offset.x,offset.y);
@@ -370,7 +468,8 @@ class Game {
         ctx.strokeRect(-halfSize.x,-halfSize.y,size.x,size.y);
         ctx.restore();
     }
-    drawBoxFill(color,location,size,rot=0,upwards=false,width=1) {
+    drawBoxFill(isUI,color,location,size,rot=0,upwards=false,width=1) {
+        if (isUI) location = location.add(this.camera);
         ctx.save();
         const offset = this.center.div(2).add(location).sub(this.camera);
         ctx.translate(offset.x,offset.y);
@@ -385,15 +484,26 @@ class Game {
         ctx.fillRect(-halfSize.x,-halfSize.y,size.x,size.y);
         ctx.restore();
     }
-    drawCircle(color,c,radius,width=1) {
+    drawCircle(isUI,color,c,radius,width=1) {
         ctx.strokeStyle = color;
         ctx.lineWidth = width;
         const pos = this.center.div(2).add(c).sub(this.camera);
+        if (isUI) pos.addMe(this.camera);
         ctx.beginPath();
         ctx.arc(pos.x,pos.y,radius,0,Math.PI*2);
         ctx.stroke();
     }
-    drawLine(color,start,end,width=1) {
+     drawCircleFill(isUI,color,c,radius,width=1) {
+        ctx.fillStyle = color;
+        const pos = this.center.div(2).add(c).sub(this.camera);
+        if (isUI) pos.addMe(this.camera);
+        ctx.beginPath();
+        ctx.arc(pos.x,pos.y,radius,0,Math.PI*2);
+        ctx.fill();
+    }
+    drawLine(isUI,color,start,end,width=1) {
+        if (isUI) start = start.add(this.camera);
+        if (isUI) end = end.add(this.camera);
         ctx.strokeStyle = color;
         ctx.lineWidth = width;
         const offsetStart = this.center.div(2).add(start).sub(this.camera);
@@ -403,14 +513,16 @@ class Game {
         ctx.lineTo(offsetEnd.x,offsetEnd.y);
         ctx.stroke();
     }
-    drawLongLine(color,points,width=1) {
+    drawLongLine(isUI,color,points,width=1) {
         ctx.strokeStyle = color;
         ctx.lineWidth = width;
         const offsetStart = this.center.div(2).add(points[0]).sub(this.camera);
+        if (isUI) offsetStart.addMe(this.camera);
         ctx.beginPath();
         ctx.moveTo(offsetStart.x,offsetStart.y);
         for (let i = 1; i < points.length; i++) {
             const point = this.center.div(2).add(points[i]).sub(this.camera);
+            if (isUI) point.addMe(this.camera);
             ctx.lineTo(point.x,point.y);
         }
         ctx.stroke();
@@ -429,16 +541,36 @@ class Game {
         
     }
     onKeyDown(event) {
-        this.keys[event.key] = true;
+        this.setKey(event.key,true);
     }
     onKeyUp(event) {
-        this.keys[event.key] = false;
+        this.setKey(event.key,false);
     }
     onMouseDown(event) {
-        this.keys["mouse"] = true;
+        this.setKey('mouse',true);
     }
     onMouseUp(event) {
-        this.keys["mouse"] = false;
+        this.setKey('mouse',false);
+    }
+    onScrollWheel(event) {
+        const rect = canvas.getBoundingClientRect();
+        if (rect.left < event.clientX && event.clientX < rect.right && rect.top < event.clientY && event.clientY < rect.bottom) {
+            event.preventDefault();
+        }
+        this.scroll.addMe(new Vector(event.deltaX,event.deltaY));
+    }
+    setKey(key,active) {
+        if (this.keys[key] == null) {
+        this.keys[key] = {active:false,state:"none"};
+        }
+        this.keys[key].active = active;
+
+    }
+    getKey(key) {
+        return this.keys[key]?.active ?? false;
+    }
+    getKeyState(key) {
+        return this.keys[key]?.state ?? "none";
     }
 }
 
@@ -446,9 +578,7 @@ game = new Game();
 
 
 const zombies = [];
-for (let i = 0; i < 10; i++) {
-    zombies.push(new Zombie(Vector.fromPolar(600,Math.random()*Math.PI*2)))
-}
+
 
 const traces = [];
 
@@ -470,6 +600,7 @@ window.addEventListener("mouseup",(e) => game.onMouseUp(e));
 
 window.addEventListener("keydown",(e) => game.onKeyDown(e));
 window.addEventListener("keyup",(e) => game.onKeyUp(e));
+window.addEventListener("wheel",(e) => game.onScrollWheel(e),{passive: false})
 
 
 
@@ -487,21 +618,51 @@ function gameLoop() {
         console.error(e);
     }
     zombies.forEach(zomb => {
-        game.draw(imageLibrary["enemy"],zomb.pos,zomb.size,zomb.rot,true)
+        if (Math.abs(zomb.pos.x - (game.camera.x)) > game.center.x / 2 || Math.abs(zomb.pos.y - (game.camera.y)) > game.center.y / 2) {
+            const pos = Vector.minmax(game.center.mul(-0.5).add(20),zomb.pos.sub(game.camera),game.center.mul(0.5).sub(20));
+            //game.drawCircle(true,`rgba(0,255,0,0.1)`,pos,10,2);
+            const dist = game.camera.distance(zomb.pos);
+            game.drawCircleFill(true,`rgba(0,255,0,0.1)`,pos,6000/dist);
+            game.drawCircle(true,`rgba(0,255,0,0.1)`,pos,6000/dist,1);
+
+            
+        } else {
+            game.draw(false,imageLibrary["enemy"],zomb.pos,zomb.size,zomb.rot,true)
+        }
+        if (game.getKey("g")) {
+            game.drawCircle(false,'rgba(0,0,0,0.4)',zomb.pos,zomb.collider.length() / 2,2)
+            game.drawBox(false,'rgba(0,0,0,0.4)',zomb.pos,zomb.collider,zomb.rot,false,2)
+
+        }
     })
     traces.forEach(trace => {
         trace.render();
     })
     zombies.forEach(zomb => {
-        game.drawBoxFill('rgba(15,40,10,1)',zomb.pos.add(new Vector(0,-40)),new Vector(10*zomb.MaxHP,10))
-        const width = 10 - 2;
-        for (let i = 0; i < zomb.HP; i++) {
-            const x = (i-zomb.MaxHP/2 + 0.5) * 10;
-            game.drawBoxFill('rgba(100,200,40,1)',zomb.pos.add(new Vector(x,-40)),new Vector(width,6))
+        if (zomb.HP < zomb.MaxHP || zomb.pos.sub(game.camera).distance(game.mouse) < 40) {
+            game.drawBoxFill(false,'rgba(15,40,10,1)',zomb.pos.add(new Vector(0,-40)),new Vector(10*zomb.MaxHP,10))
+            const width = 10 - 2;
+            for (let i = 0; i < zomb.HP; i++) {
+                const x = (i-zomb.MaxHP/2 + 0.5) * 10;
+                game.drawBoxFill(false,'rgba(100,200,40,1)',zomb.pos.add(new Vector(x,-40)),new Vector(width,6))
+            }
         }
     })
-    game.draw(imageLibrary["player"],game.player.pos,game.player.size,game.player.rot,true);
+    game.draw(false,imageLibrary["player"],game.player.pos,game.player.size,game.player.rot,true);
+    const hpUnitSize = 40;
+    const width = Math.min(canvas.width * 3/4,game.player.MaxHP*hpUnitSize) / game.player.MaxHP;
+    game.drawBoxFill(true,'rgb(69, 19, 17)',new Vector(0,canvas.height / 2 - (hpUnitSize/2) - 40),new Vector(game.player.MaxHP * width, hpUnitSize));
+    for (let i = 0; i < game.player.HP; i++) {
+        const x = (i-game.player.MaxHP/2 + 0.5) * width;
+        game.drawBoxFill(true,'rgb(255, 84, 49)',new Vector(x,canvas.height / 2 - (hpUnitSize/2) - 40),new Vector(width-5,hpUnitSize-5))
+    }
+    if (game.player.invulnerabilityTicks>0) {
+        game.drawBoxFill(true,`rgba(149, 174, 255, ${(game.player.invulnerabilityTicks / 15 - 0.25)})`,new Vector((game.player.HP - game.player.MaxHP/2 + 0.5) * width,canvas.height / 2 - (hpUnitSize/2) - 40),new Vector(width-5,hpUnitSize-5))
+    }
+    game.drawBoxFill(true,'rgba(0,0,0,0.1)',new Vector(0,canvas.height / 2 - (hpUnitSize * 1/4) - 40),new Vector(game.player.MaxHP * width, hpUnitSize/2));
+    game.drawBoxFill(true,'rgba(255,255,255,0.05)',new Vector(0,canvas.height / 2 - (hpUnitSize * 3/4) - 40),new Vector(game.player.MaxHP * width, hpUnitSize/2));
 
+    
     // 2. Update object positions (e.g., player.x += player.speed)
     //update();
 
