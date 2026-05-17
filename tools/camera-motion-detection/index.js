@@ -23,12 +23,18 @@ const resolutionSelect = document.createElement('select');
 ['default','640x480','1280x720','1920x1080'].forEach(opt => { const o = document.createElement('option'); o.value = opt; o.textContent = opt; resolutionSelect.appendChild(o); });
 resolutionSelect.style.marginLeft = '8px';
 
+// Camera device selector (populated from enumerateDevices)
+const deviceSelect = document.createElement('select');
+deviceSelect.style.marginLeft = '8px';
+const defaultDeviceOpt = document.createElement('option'); defaultDeviceOpt.value = 'default'; defaultDeviceOpt.textContent = 'Default camera'; deviceSelect.appendChild(defaultDeviceOpt);
+
+
 // FPS and status
 const fpsSpan = document.createElement('span'); fpsSpan.style.marginLeft = '8px'; fpsSpan.textContent = 'FPS: -';
 const status = document.createElement('div'); status.style.marginTop = '6px';
 
 controls.appendChild(startBtn); controls.appendChild(stopBtn); controls.appendChild(snapshotBtn);
-controls.appendChild(mirrorLabel); controls.appendChild(resolutionSelect); controls.appendChild(fpsSpan);
+controls.appendChild(mirrorLabel); controls.appendChild(deviceSelect); controls.appendChild(resolutionSelect); controls.appendChild(fpsSpan);
 container.appendChild(controls); container.appendChild(status);
 
 // Hidden video element
@@ -65,6 +71,28 @@ threshInput.addEventListener('input', ()=>{ threshLabel.textContent = 'Threshold
 procSizeSelect.addEventListener('change', ()=>{
   const val = Number(procSizeSelect.value); if(!isPowerOfTwo(val)) return; procSize = val; procCanvas.width = procSize; procCanvas.height = procSize; prevGray = null; prevBlockEnergies = null; prevBlockInitialized = false; setStatus('Processing resolution: ' + procSize + 'px'); if(gl) ensureGLSize();
 });
+
+// populate available video input devices
+async function updateDeviceList(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  try{
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoInputs = devices.filter(d => d.kind === 'videoinput');
+    const prev = deviceSelect.value;
+    deviceSelect.innerHTML = '';
+    const defaultOpt = document.createElement('option'); defaultOpt.value = 'default'; defaultOpt.textContent = 'Default camera'; deviceSelect.appendChild(defaultOpt);
+    let i = 1;
+    for(const d of videoInputs){
+      const o = document.createElement('option');
+      o.value = d.deviceId || d.deviceId;
+      o.textContent = d.label || ('Camera ' + (i++));
+      deviceSelect.appendChild(o);
+    }
+    if(prev) deviceSelect.value = prev;
+  }catch(e){ /* ignore */ }
+}
+
+deviceSelect.addEventListener('change', ()=>{ if(stream) startCamera(); });
 
 function setStatus(msg, isError=false){ status.textContent = msg; status.style.color = isError ? 'crimson' : ''; }
 
@@ -129,8 +157,8 @@ function gpuProcess(mirror, thresh){ if(!gl) return; ensureGLSize(); // upload c
   gl.viewport(0,0,procSize,procSize); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
-// Add GPU mode option if available
-initWebGL(); if(gpuSupported){ const o=document.createElement('option'); o.value='gpu-difference'; o.textContent='gpu-difference'; modeSelect.appendChild(o); }
+// populate device list then init GPU and UI
+updateDeviceList().then(()=>{ initWebGL(); if(gpuSupported){ const o=document.createElement('option'); o.value='gpu-difference'; o.textContent='gpu-difference'; modeSelect.appendChild(o); } });
 
 // --- Render / processing loop ---
 function renderLoop(){
@@ -170,7 +198,38 @@ function renderLoop(){
   rafId = requestAnimationFrame(renderLoop);
 }
 
-async function startCamera(){ if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ setStatus('getUserMedia not supported', true); return; } stopCamera(); const res = parseResolution(resolutionSelect.value); const constraints = {video: res || {facingMode: 'user'}}; try{ stream = await navigator.mediaDevices.getUserMedia(constraints); video.srcObject = stream; await video.play(); canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480; motionCanvas.width = video.videoWidth || 640; motionCanvas.height = video.videoHeight || 480; startBtn.disabled = true; stopBtn.disabled = false; setStatus('Camera started'); frameCount = 0; lastFpsUpdate = performance.now(); renderLoop(); }catch(err){ setStatus('Camera error: ' + err.message, true); } }
+async function startCamera(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ setStatus('getUserMedia not supported', true); return; }
+  stopCamera();
+  const res = parseResolution(resolutionSelect.value);
+  const videoConstraints = {};
+  if(deviceSelect && deviceSelect.value && deviceSelect.value !== 'default'){
+    videoConstraints.deviceId = { exact: deviceSelect.value };
+  }
+  if(res){ Object.assign(videoConstraints, res); }
+  else if(!videoConstraints.deviceId){ videoConstraints.facingMode = 'user'; }
+  const constraints = { video: videoConstraints };
+  try{
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    // after permission, update device list so labels appear
+    await updateDeviceList();
+    video.srcObject = stream;
+    await video.play();
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    motionCanvas.width = video.videoWidth || 640;
+    motionCanvas.height = video.videoHeight || 480;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    setStatus('Camera started');
+    frameCount = 0;
+    lastFpsUpdate = performance.now();
+    renderLoop();
+  }catch(err){
+    setStatus('Camera error: ' + err.message, true);
+  }
+}
+
 
 function stopCamera(){ if(rafId) cancelAnimationFrame(rafId); rafId = null; if(video){ try{ video.pause(); }catch(e){} } if(stream){ stream.getTracks().forEach(t=>t.stop()); stream = null; } startBtn.disabled = false; stopBtn.disabled = true; setStatus('Camera stopped'); ctx.clearRect(0,0,canvas.width,canvas.height); }
 
