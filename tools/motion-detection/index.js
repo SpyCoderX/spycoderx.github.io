@@ -238,7 +238,7 @@ updateDeviceList().then(()=>{ initWebGL(); if(gpuSupported){ const o=document.cr
 // --- Render / processing loop ---
 function renderLoop(){
   if(!video || video.readyState < 2){ rafId = requestAnimationFrame(renderLoop); return; }
-  const cw = canvas.width = video.videoWidth || canvas.width; const ch = canvas.height = video.videoHeight || canvas.height;
+  const cw = canvas.width; const ch = canvas.height;
   ctx.save(); if(mirrorCheckbox.checked){ ctx.setTransform(-1,0,0,1,cw,0); } else { ctx.setTransform(1,0,0,1,0,0); }
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(video, 0, 0, cw, ch);
@@ -360,10 +360,13 @@ async function startCamera(){
     await updateDeviceList();
     video.srcObject = stream;
     await video.play();
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    motionCanvas.width = video.videoWidth || 640;
-    motionCanvas.height = video.videoHeight || 480;
+    const vWidth = video.videoWidth;
+    const vHeight = video.videoHeight;
+    const aspRatio = vWidth/vHeight;
+    canvas.width = 480*aspRatio;
+    canvas.height = 480;
+    motionCanvas.width = 480*aspRatio;
+    motionCanvas.height = 480;
     startBtn.disabled = true;
     stopBtn.disabled = false;
     setStatus('Camera started');
