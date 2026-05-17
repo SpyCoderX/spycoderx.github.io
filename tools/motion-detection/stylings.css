@@ -11,6 +11,9 @@
     align-items: flex-start;
     justify-content: center;
 }
+p {
+  margin: 8px;
+}
 
 canvas {
     margin: 0;
@@ -120,14 +123,37 @@ canvas {
 }
 .lag-container{ display:flex; align-items:center; }
 
+#status {
+    --color: gray;
+    border: 1px solid rgba(from var(--color) r g b / 0.3);
+    border-radius: 10px;
+    padding: 10px;
+    margin: 10px;
+    color: var(--color);
+    --glowColor: rgba(from var(--color) r g b / 0.8);
+}
+
 /* Cap canvas sizes so they don't overflow the layout and preserve aspect ratio */
 #videoCanvas, #motionCanvas, .canvas-container canvas {
   max-width: min(90vw, 1200px);
   width: auto;
   height: auto;
   max-height: 70vh;
-  box-shadow: 0 0 8px rgba(0,0,0,0.6);
+  box-shadow: 0 0 8px rgba(255,255,255,0.6), 0 0 2px rgba(255,255,255,0.6);
   display: block;
+  border-radius: 8px;
+  width: 640;
+  height: 480;
+}
+#videoCanvas {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+
+}
+#motionCanvas {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+
 }
 
 @media (max-width: 700px) {
