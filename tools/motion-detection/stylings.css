@@ -1,0 +1,138 @@
+.content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+.canvas-container {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+canvas {
+    margin: 0;
+    padding: 0;
+}
+
+/* Camera tool styles */
+.camera-controls {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255,255,255,0.02);
+  padding: 8px;
+  border-radius: 6px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.camera-controls button, .camera-controls select, .camera-controls input[type="range"], .camera-controls input[type="checkbox"] {
+  background: transparent;
+  color: var(--themeColor);
+  border: 1px solid rgba(80,255,80,0.2);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-family: inherit;
+}
+.camera-controls label { color: var(--themeColor); }
+
+/* Left/right groups inside camera-controls */
+.controls-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.controls-right {
+  display: flex;
+  gap: 12px;
+  align-items: right;
+  justify-content: center;
+  min-width: 140px;
+  flex-direction: column;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 255, 0, 0.164);
+  padding: 6px;
+}
+.controls-right .value {
+  min-width: 64px;
+  text-align: right;
+  padding: 0px;
+  margin: 0px;
+}
+
+/* Individual control column (label above control) */
+.control-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+}
+.control-label {
+  font-size: 0.8rem;
+  color: var(--themeColor);
+  text-align: center;
+}
+
+/* Make selects match theme and not show white backgrounds */
+.camera-controls select {
+  background: rgba(0,0,0,0.45);
+  color: var(--themeColor);
+  border-color: rgba(80,255,80,0.2);
+}
+.camera-controls select option { background: rgba(0,0,0,0.9); color: var(--themeColor); }
+
+/* Range width and pixelated rendering for sharpness */
+.camera-controls input[type="range"]{ width: 160px; padding: 0; }
+.canvas-container canvas { image-rendering: pixelated; vertical-align: top; }
+
+/* Number input (lag) themed to match controls */
+.camera-controls input[type="number"]{
+  background: rgba(0,0,0,0.45);
+  color: var(--themeColor);
+  border: 1px solid rgba(80,255,80,0.2);
+  padding: 4px 6px;
+  border-radius: 4px;
+  width: 64px;
+  box-sizing: border-box;
+  -moz-appearance: textfield;
+}
+.camera-controls input[type="number"]::-webkit-outer-spin-button,
+.camera-controls input[type="number"]::-webkit-inner-spin-button{
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* small step buttons beside the lag input */
+.small-step{
+  background: rgba(0,0,0,0.45);
+  color: var(--themeColor);
+  border: 1px solid rgba(80,255,80,0.2);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 0 4px;
+}
+.lag-container{ display:flex; align-items:center; }
+
+/* Cap canvas sizes so they don't overflow the layout and preserve aspect ratio */
+#videoCanvas, #motionCanvas, .canvas-container canvas {
+  max-width: min(90vw, 1200px);
+  width: auto;
+  height: auto;
+  max-height: 70vh;
+  box-shadow: 0 0 8px rgba(0,0,0,0.6);
+  display: block;
+}
+
+@media (max-width: 700px) {
+  .canvas-container {
+    flex-direction: column;
+  }
+  .camera-controls { gap: 6px; padding: 6px; }
+}
