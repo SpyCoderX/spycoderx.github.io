@@ -162,3 +162,13 @@ canvas {
   }
   .camera-controls { gap: 6px; padding: 6px; }
 }
+
+/* When the motion canvas is fullscreen, make it fill the viewport cleanly */
+#motionCanvas:fullscreen, #motionCanvas:-webkit-full-screen, #motionCanvas:-ms-fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}

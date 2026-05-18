@@ -1,4 +1,6 @@
 const MODES = ['difference','motion-blur'];
+const PROCESSING_SIZES = [128,256,512,1024];
+const MAX_PROCESS_SIZE = Math.max(...PROCESSING_SIZES);
 
 // Camera motion detection with CPU difference, block-Fourier, and WebGL2 GPU difference.
 const canvas = document.getElementById('videoCanvas');
@@ -24,6 +26,10 @@ function createControlColumn(labelText, element){
 // Buttons
 const restartBtn = document.createElement('button'); restartBtn.textContent = 'Restart Camera';
 const snapshotBtn = document.createElement('button'); snapshotBtn.textContent = 'Snapshot → Clipboard';
+// Fullscreen motion canvas
+const fullscreenBtn = document.createElement('button'); fullscreenBtn.textContent = 'Fullscreen';
+// Popup window mode
+const popupBtn = document.createElement('button'); popupBtn.textContent = 'Open Popup';
 
 // Mirror
 const mirrorLabel = document.createElement('label');
@@ -47,6 +53,8 @@ const status = document.getElementById('status'); status.style.marginTop = '6px'
 
 controlsLeft.appendChild(createControlColumn('Restart', restartBtn));
 controlsLeft.appendChild(createControlColumn('Snapshot', snapshotBtn));
+controlsLeft.appendChild(createControlColumn('Fullscreen', fullscreenBtn));
+controlsLeft.appendChild(createControlColumn('Popup', popupBtn));
 controlsLeft.appendChild(createControlColumn('Mirror', mirrorLabel));
 controlsLeft.appendChild(createControlColumn('Camera', deviceSelect));
 controlsLeft.appendChild(createControlColumn('Resolution', resolutionSelect));
@@ -76,9 +84,9 @@ const pctx = procCanvas.getContext('2d');
 const modeSelect = document.createElement('select'); MODES.forEach(m=>{ const o=document.createElement('option'); o.value=m; o.textContent = m.charAt(0).toUpperCase() + m.slice(1); modeSelect.appendChild(o); });
 // layout handled by control columns
 
-const threshInput = document.createElement('input'); threshInput.type = 'range'; threshInput.step = 0.001; threshInput.min = 0; threshInput.max = 1; threshInput.value = 0.02;
-const threshLabel = document.createElement('span'); threshLabel.textContent = 'Threshold: 0%';
-  threshLabel.className = 'value';
+// const threshInput = document.createElement('input'); threshInput.type = 'range'; threshInput.step = 0.001; threshInput.min = 0; threshInput.max = 1; threshInput.value = 0.02;
+// const threshLabel = document.createElement('span'); threshLabel.textContent = 'Threshold: 0%';
+//   threshLabel.className = 'value';
 
 // Feedback controls
 // const feedbackCheckbox = document.createElement('input'); feedbackCheckbox.type = 'checkbox';
@@ -100,12 +108,12 @@ const lagInc = document.createElement('button'); lagInc.type = 'button'; lagInc.
 lagContainer.appendChild(lagDec); lagContainer.appendChild(lagInput); lagContainer.appendChild(lagInc);
 
 controlsLeft.appendChild(createControlColumn('Mode', modeSelect));
-controlsLeft.appendChild(createControlColumn('Threshold', threshInput));
+// controlsLeft.appendChild(createControlColumn('Threshold', threshInput));
 controlsLeft.appendChild(createControlColumn('Frames', lagContainer));
-controlsRight.appendChild(threshLabel);
+// controlsRight.appendChild(threshLabel);
 
 // Processing resolution selector
-const procSizeSelect = document.createElement('select'); [128,256,512].forEach(n=>{ const o=document.createElement('option'); o.value=String(n); o.textContent = n + ' px'; if(n===procSize) o.selected = true; procSizeSelect.appendChild(o); }); controlsLeft.appendChild(createControlColumn('Proc', procSizeSelect));
+const procSizeSelect = document.createElement('select'); PROCESSING_SIZES.forEach(n=>{ const o=document.createElement('option'); o.value=String(n); o.textContent = n + ' px'; if(n===procSize) o.selected = true; procSizeSelect.appendChild(o); }); controlsLeft.appendChild(createControlColumn('Proc', procSizeSelect));
 
 // Block size control (only visible for Fourier modes)
 // const blockSizeSelect = document.createElement('select'); [1,2,4,8].forEach(n=>{ const o=document.createElement('option'); o.value=String(n); o.textContent = n + ' px'; if(n===blockSizeVar) o.selected = true; blockSizeSelect.appendChild(o); });
@@ -115,7 +123,7 @@ const procSizeSelect = document.createElement('select'); [128,256,512].forEach(n
 // function recreateBlockTextures(){ if(!gl || !gpuPrograms) return; const blockSize = gpuPrograms.blockSize || 16; const blocks = Math.max(1, Math.floor(procSize / blockSize)); function makeBlockTex(w,h){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA, w, h,0,gl.RGBA,gl.UNSIGNED_BYTE,null); return t; } if(gpuPrograms.blockTexCur) gl.deleteTexture(gpuPrograms.blockTexCur); for(const t of (gpuPrograms.blockTexHistory||[])) if(t) gl.deleteTexture(t); gpuPrograms.blockTexCur = makeBlockTex(blocks, blocks); gpuPrograms.blockTexHistory = new Array(gpuPrograms.maxHistory); for(let i=0;i<gpuPrograms.maxHistory;i++) gpuPrograms.blockTexHistory[i] = makeBlockTex(blocks, blocks); gpuPrograms.blockHistoryIndex = 0; gpuPrograms.blockHistoryFilled = 0; }
 // blockSizeSelect.addEventListener('change', ()=>{ blockSizeVar = Number(blockSizeSelect.value) || 16; if(gpuPrograms) gpuPrograms.blockSize = blockSizeVar; if(gl) ensureGLSize(); recreateBlockTextures(); setStatus('Block size: ' + blockSizeVar + ' px'); });
 
-threshInput.addEventListener('input', ()=>{ const pct = Math.round((threshInput.value / Number(threshInput.max)) * 100); threshLabel.textContent = 'Threshold: ' + pct + '%'; });
+// threshInput.addEventListener('input', ()=>{ const pct = Math.round((threshInput.value / Number(threshInput.max)) * 100); threshLabel.textContent = 'Threshold: ' + pct + '%'; });
 
 // Sticky (press-and-hold) behavior for lag buttons
 let _lagHoldTimeout = null; let _lagHoldInterval = null;
@@ -129,7 +137,7 @@ lagInc.addEventListener('touchstart', (e)=>{ e.preventDefault(); startLagRepeat(
 lagDec.addEventListener('touchstart', (e)=>{ e.preventDefault(); startLagRepeat(-1); }, {passive:false});
 ['mouseup','mouseleave','touchend','touchcancel'].forEach(ev=>{ document.addEventListener(ev, stopLagRepeat); });
 // initialize display
-threshInput.dispatchEvent(new Event('input'));
+// threshInput.dispatchEvent(new Event('input'));
 procSizeSelect.addEventListener('change', ()=>{
   const val = Number(procSizeSelect.value); if(!isPowerOfTwo(val)) return; procSize = val; procCanvas.width = procSize; procCanvas.height = procSize; prevImg = null; prevImgs = []; prevBlockHistory = []; prevBlockInitialized = false; setStatus('Processing resolution: ' + procSize + 'px'); if(gl) ensureGLSize();
 });
@@ -347,7 +355,7 @@ function initWebGL(){
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); 
     
     // WebGL2 Sized Internal Format: RGBA16F, Type: HALF_FLOAT
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 512,512, 0, gl.RGBA, gl.HALF_FLOAT, null); 
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, MAX_PROCESS_SIZE,MAX_PROCESS_SIZE, 0, gl.RGBA, gl.HALF_FLOAT, null); 
     return t; 
   }
 
@@ -398,7 +406,7 @@ function ensureGLSize(){
   }
 }
 
-function gpuProcess(mirror, thresh, lag, mode){ // Added 'mode' parameter
+function gpuProcess(mirror, lag, mode){ // Added 'mode' parameter
   if(!gl) return;
   ensureGLSize(); 
 
@@ -425,7 +433,7 @@ function gpuProcess(mirror, thresh, lag, mode){ // Added 'mode' parameter
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, prevTex);
     gl.uniform1i(gl.getUniformLocation(gpuPrograms.diff,'u_prev'), 1);
-    gl.uniform1f(gl.getUniformLocation(gpuPrograms.diff,'u_thresh'), thresh);
+    // gl.uniform1f(gl.getUniformLocation(gpuPrograms.diff,'u_thresh'), thresh);
     gl.uniform1i(gl.getUniformLocation(gpuPrograms.diff,'u_mirror'), mirror ? 1 : 0);
     
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -469,8 +477,8 @@ function gpuProcess(mirror, thresh, lag, mode){ // Added 'mode' parameter
     }
     gl.disable(gl.BLEND);
 
+    gl.viewport(0, 0, MAX_PROCESS_SIZE,MAX_PROCESS_SIZE);
     gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-    gl.viewport(0, 0, 512,512);
     
     gl.clearColor(0,0,0,0); 
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -584,7 +592,7 @@ function saveSettings(){ try{ const s = {
     mode: modeSelect.value,
     procSize: procSizeSelect.value,
     // blockSize: blockSizeSelect.value,
-    threshold: threshInput.value,
+    // threshold: threshInput.value,
     lag: lagInput.value,
     mirror: mirrorCheckbox.checked
   }; localStorage.setItem('motion-detection-settings', JSON.stringify(s)); }catch(e){}
@@ -594,7 +602,7 @@ function applySavedSettings(s){ if(!s) return; try{
   if(s.mode) { if(Array.from(modeSelect.options).some(o=>o.value===s.mode)) modeSelect.value = s.mode; }
   if(s.procSize) { if(Array.from(procSizeSelect.options).some(o=>o.value===s.procSize)) procSizeSelect.value = s.procSize; procSizeSelect.dispatchEvent(new Event('change')); }
   // if(s.blockSize) { if(Array.from(blockSizeSelect.options).some(o=>o.value===s.blockSize)) blockSizeSelect.value = s.blockSize; blockSizeSelect.dispatchEvent(new Event('change')); }
-  if(typeof s.threshold !== 'undefined') { threshInput.value = s.threshold; threshInput.dispatchEvent(new Event('input')); }
+  // if(typeof s.threshold !== 'undefined') { threshInput.value = s.threshold; threshInput.dispatchEvent(new Event('input')); }
   if(s.lag) { lagInput.value = s.lag; }
   if(typeof s.mirror !== 'undefined'){ mirrorCheckbox.checked = !!s.mirror; }
   // device and resolution will only be set if options exist
@@ -606,7 +614,7 @@ function applySavedSettings(s){ if(!s) return; try{
 }
 
 // wire saving behavior
-[deviceSelect, resolutionSelect, modeSelect, procSizeSelect, threshInput, lagInput, mirrorCheckbox].forEach(el=>{
+[deviceSelect, resolutionSelect, modeSelect, procSizeSelect, lagInput, mirrorCheckbox].forEach(el=>{
   if(!el) return; const ev = (el.tagName === 'INPUT' && el.type === 'range') ? 'input' : 'change'; el.addEventListener(ev, saveSettings);
 });
 
@@ -643,12 +651,14 @@ function renderLoop(){
     ctx.restore();
 
     const mode = modeSelect.value;
-    const threshVal = Number(threshInput.value);
-    const threshNorm = threshVal / Number(threshInput.max);
+    // const threshVal = Number(threshInput.value);
+    // const threshNorm = threshVal / Number(threshInput.max);
 
-    if((mode === 'gpu-difference' || mode === 'gpu-motion-blur') && gpuSupported){ const lag = Number(lagInput.value) || 1; gpuProcess(mirrorCheckbox.checked, threshNorm, lag,mode); // copy GPU canvas into motionCanvas
+    if((mode === 'gpu-difference' || mode === 'gpu-motion-blur') && gpuSupported){ const lag = Number(lagInput.value) || 1; gpuProcess(mirrorCheckbox.checked, lag,mode); // copy GPU canvas into motionCanvas
       mctx.clearRect(0,0,motionCanvas.width,motionCanvas.height);
       try{ mctx.save(); mctx.translate(0, motionCanvas.height); mctx.scale(1, -1); mctx.drawImage(glCanvas, 0, 0, motionCanvas.width, motionCanvas.height); mctx.restore(); }catch(e){}
+      // mirror to popup if open
+      if(popupCtx){ try{ popupCtx.clearRect(0,0,popupCanvas.width,popupCanvas.height); popupCtx.drawImage(motionCanvas, 0,0, popupCanvas.width, popupCanvas.height); }catch(e){} }
     }
     // else if(mode === 'gpu-fourier' && gpuSupported){ const lag = Number(lagInput.value) || 1; gpuFourierProcess(mirrorCheckbox.checked, threshNorm, lag);
     //   mctx.clearRect(0,0,motionCanvas.width,motionCanvas.height);
@@ -778,6 +788,8 @@ function renderLoop(){
       mctx.clearRect(0,0,motionCanvas.width,motionCanvas.height);
       mctx.imageSmoothingEnabled = false;
       mctx.drawImage(procCanvas, 0, 0, motionCanvas.width, motionCanvas.height);
+      // mirror to popup if open
+      if(popupCtx){ try{ popupCtx.clearRect(0,0,popupCanvas.width,popupCanvas.height); popupCtx.drawImage(motionCanvas, 0,0, popupCanvas.width, popupCanvas.height); }catch(e){} }
     }
 
     frameCount++; const now = performance.now(); if(now - lastFpsUpdate >= 500){ const fps = Math.round((frameCount * 1000) / (now - lastFpsUpdate)); fpsSpan.textContent = 'FPS: ' + fps; frameCount = 0; lastFpsUpdate = now; }
@@ -834,6 +846,8 @@ async function startCamera(){
     motionCanvas.height = vHeight;
     motionCanvas.style.width = 480*aspRatio;
     motionCanvas.style.height = 480;
+    // if popup is open, update its canvas size
+    try{ updatePopupSize(); }catch(e){}
     setStatus('Camera started');
     frameCount = 0;
     lastFpsUpdate = performance.now();
@@ -850,10 +864,106 @@ function stopCamera(){ if(rafId) cancelAnimationFrame(rafId); rafId = null; if(v
 restartBtn.addEventListener('click', startCamera);
 snapshotBtn.addEventListener('click', async ()=>{ try{ const blob = await new Promise(res=>motionCanvas.toBlob(res,'image/png')); await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]); setStatus('Snapshot copied to clipboard'); }catch(err){ setStatus('Clipboard failed: ' + err.message, true); const blob = await new Promise(res=>motionCanvas.toBlob(res,'image/png')); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'snapshot.png'; a.click(); URL.revokeObjectURL(url); } });
 
+// Fullscreen handling for motion canvas
+fullscreenBtn.addEventListener('click', async () => {
+  try {
+    if (document.fullscreenElement === motionCanvas) {
+      await document.exitFullscreen();
+    } else {
+      // request fullscreen on the motion canvas specifically
+      if (motionCanvas.requestFullscreen) await motionCanvas.requestFullscreen();
+      else if (motionCanvas.webkitRequestFullscreen) motionCanvas.webkitRequestFullscreen();
+      else if (motionCanvas.msRequestFullscreen) motionCanvas.msRequestFullscreen();
+    }
+  } catch (e) {
+    setStatus('Fullscreen failed: ' + e.message, true);
+  }
+});
+
+function updateFullscreenButton(){
+  const isFull = (document.fullscreenElement === motionCanvas) || (document.webkitFullscreenElement === motionCanvas);
+  fullscreenBtn.textContent = isFull ? 'Exit Fullscreen' : 'Fullscreen';
+}
+document.addEventListener('fullscreenchange', updateFullscreenButton);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+
+// Popup window handling
+let popupWin = null; let popupCanvas = null; let popupCtx = null;
+
+function updatePopupButton(){
+  const isOpen = popupWin && !popupWin.closed;
+  popupBtn.textContent = isOpen ? 'Close Popup' : 'Open Popup';
+}
+
+function updatePopupSize(){
+  try{
+    if(!popupCanvas) return;
+    // keep popup canvas pixel size matching source for crisp rendering
+    popupCanvas.width = motionCanvas.width;
+    popupCanvas.height = motionCanvas.height;
+    popupCanvas.style.width = '100%';
+    popupCanvas.style.height = '100%';
+
+    // attempt to resize popup window to maintain aspect ratio while fitting on screen
+    if(popupWin && !popupWin.closed){
+      const desiredW = motionCanvas.width || 640;
+      const desiredH = motionCanvas.height || 480;
+      const maxW = Math.max(200, Math.floor((popupWin.screen && popupWin.screen.availWidth ? popupWin.screen.availWidth : screen.availWidth) * 0.9));
+      const maxH = Math.max(150, Math.floor((popupWin.screen && popupWin.screen.availHeight ? popupWin.screen.availHeight : screen.availHeight) * 0.9));
+      const scale = Math.min(1, maxW / desiredW, maxH / desiredH);
+      const finalW = Math.max(200, Math.round(desiredW * scale));
+      const finalH = Math.max(150, Math.round(desiredH * scale));
+      try{ popupWin.resizeTo(finalW, finalH); }catch(e){}
+      try{ popupWin.moveTo(Math.max(0, Math.round((screen.availWidth - finalW)/2)), Math.max(0, Math.round((screen.availHeight - finalH)/2))); }catch(e){}
+    }
+  }catch(e){}
+}
+
+async function openPopupWindow(){
+  try{
+    if(popupWin && !popupWin.closed){ popupWin.focus(); updatePopupButton(); return; }
+    // compute popup window size to match canvas aspect ratio and fit on screen
+    const desiredW = motionCanvas.width || 640;
+    const desiredH = motionCanvas.height || 480;
+    const maxW = Math.max(200, Math.floor(screen.availWidth * 0.9));
+    const maxH = Math.max(150, Math.floor(screen.availHeight * 0.9));
+    const scale = Math.min(1, maxW / desiredW, maxH / desiredH);
+    const finalW = Math.max(200, Math.round(desiredW * scale));
+    const finalH = Math.max(150, Math.round(desiredH * scale));
+    const left = Math.max(0, Math.round((screen.availWidth - finalW) / 2));
+    const top = Math.max(0, Math.round((screen.availHeight - finalH) / 2));
+    popupWin = window.open('', 'MotionPopup', `width=${finalW},height=${finalH},left=${left},top=${top}`);
+    if(!popupWin){ setStatus('Popup blocked or failed to open', true); popupWin = null; updatePopupButton(); return; }
+    popupWin.document.title = 'Motion - Popup';
+    popupWin.document.body.style.margin = '0';
+    popupWin.document.body.style.background = '#000';
+    popupWin.document.body.innerHTML = '<canvas id="motionPopupCanvas" style="width:100%;height:100%;display:block"></canvas>';
+    popupCanvas = popupWin.document.getElementById('motionPopupCanvas');
+    popupCtx = popupCanvas.getContext('2d');
+    // set popup canvas pixel size to source and adjust window if needed
+    updatePopupSize();
+    try{ popupWin.resizeTo(finalW, finalH); }catch(e){}
+    popupWin.addEventListener('beforeunload', ()=>{ popupWin = null; popupCanvas = null; popupCtx = null; updatePopupButton(); });
+    updatePopupButton();
+  }catch(e){ setStatus('Popup failed: ' + e.message, true); }
+}
+
+function closePopupWindow(){
+  try{ if(popupWin && !popupWin.closed) popupWin.close(); }catch(e){}
+  popupWin = null; popupCanvas = null; popupCtx = null; updatePopupButton();
+}
+
+popupBtn.addEventListener('click', ()=>{
+  if(popupWin && !popupWin.closed) closePopupWindow(); else openPopupWindow();
+});
+
+// ensure popup closes on main unload
+window.addEventListener('beforeunload', closePopupWindow);
+
 resolutionSelect.addEventListener('change', ()=>{ if(stream) startCamera(); });
 modeSelect.addEventListener('change', ()=>{ if(stream) startCamera(); });
 resolutionSelect.addEventListener('change', ()=>{ if(stream) startCamera(); });
-threshInput.addEventListener('change', ()=>{ if(stream) startCamera(); });
+// threshInput.addEventListener('change', ()=>{ if(stream) startCamera(); });
 mirrorCheckbox.addEventListener('change', ()=>{ if(stream) startCamera(); });
 
 
