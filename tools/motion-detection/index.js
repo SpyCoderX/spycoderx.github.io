@@ -223,6 +223,24 @@ function initWebGL(){
 
   const vs = compile(gl.VERTEX_SHADER, vsSrc); const fs_d = compile(gl.FRAGMENT_SHADER, fsDiff); const fs_c = compile(gl.FRAGMENT_SHADER, fsCopy);
   gpuPrograms.diff = link(vs, fs_d); gpuPrograms.copy = link(vs, fs_c);
+  const fsBlur = `#version 300 es
+  precision highp float;
+  in vec2 v_uv;
+  out vec4 outColor;
+  uniform sampler2D u_tex;
+  uniform float u_weight;
+  uniform bool u_mirror;
+
+  void main(){
+    vec2 uv = v_uv;
+    if(u_mirror) uv.x = 1.0 - uv.x;
+    // Multiply color by the individual frame weight for accumulation
+    outColor = texture(u_tex, uv) * u_weight;
+  }`;
+
+  // Compile and link it inside initWebGL()
+  const fs_b = compile(gl.FRAGMENT_SHADER, fsBlur);
+  gpuPrograms.blur = link(vs, fs_b);
 
   // amplify-copy shader for pixel-diff feedback: writes cur*(1 + gain*mask) into target
   const fsDiffAmplify = `#version 300 es
@@ -319,6 +337,33 @@ function initWebGL(){
 
   function makeTex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,procSize,procSize,0,gl.RGBA,gl.UNSIGNED_BYTE,null); return t; }
   gpuPrograms.texA = makeTex(); gpuPrograms.texB = makeTex(); gpuPrograms.texCur = makeTex(); gpuPrograms.fb = gl.createFramebuffer();
+  
+  function makeFloatTex(){ 
+    const t = gl.createTexture(); 
+    gl.bindTexture(gl.TEXTURE_2D, t); 
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); 
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); 
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); 
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); 
+    
+    // WebGL2 Sized Internal Format: RGBA16F, Type: HALF_FLOAT
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 512,512, 0, gl.RGBA, gl.HALF_FLOAT, null); 
+    return t; 
+  }
+
+  // Setup the high-precision accumulation targets
+  const floatBufExt = gl.getExtension('EXT_color_buffer_float');
+  if (!floatBufExt) {
+    console.warn("GPU does not support floating-point rendering. Falling back to 8-bit precision.");
+  }
+  gpuPrograms.texAccum = makeFloatTex();
+  gpuPrograms.fbAccum = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, gpuPrograms.fbAccum);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, gpuPrograms.texAccum, 0);
+
+  // Unbind to keep things clean
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  
   // history textures for multi-frame lag support
   gpuPrograms.maxHistory = 60;
   gpuPrograms.texHistory = new Array(gpuPrograms.maxHistory);
@@ -353,39 +398,104 @@ function ensureGLSize(){
   }
 }
 
-function gpuProcess(mirror, thresh, lag){ if(!gl) return; ensureGLSize(); // upload current video frame into texCur
-  gl.bindTexture(gl.TEXTURE_2D, gpuPrograms.texCur); try{ gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE, video); }catch(e){ return; }
-  gl.viewport(0,0,gl.canvas.width, gl.canvas.height); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.useProgram(gpuPrograms.diff);
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, gpuPrograms.texCur); gl.uniform1i(gl.getUniformLocation(gpuPrograms.diff,'u_cur'), 0);
-  // choose previous texture based on history and requested lag
-  let prevTex = gpuPrograms.texA;
-  if(gpuPrograms.historyFilled >= (lag||1)){
+function gpuProcess(mirror, thresh, lag, mode){ // Added 'mode' parameter
+  if(!gl) return;
+  ensureGLSize(); 
+
+  // Upload current video frame into texCur
+  gl.bindTexture(gl.TEXTURE_2D, gpuPrograms.texCur); 
+  try{ gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE, video); }catch(e){ return; }
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0,0,gl.canvas.width, gl.canvas.height); 
+
+  // Clear canvas to start fresh for blending accumulation
+  gl.clearColor(0,0,0,0); 
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  if(mode === 'gpu-difference'){
+    gl.useProgram(gpuPrograms.diff);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gpuPrograms.texCur);
+    gl.uniform1i(gl.getUniformLocation(gpuPrograms.diff,'u_cur'), 0);
+    
+    let prevTex = gpuPrograms.texA;
     const idx = (gpuPrograms.historyIndex - (lag||1) + gpuPrograms.maxHistory) % gpuPrograms.maxHistory;
     prevTex = gpuPrograms.texHistory[idx];
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, prevTex);
+    gl.uniform1i(gl.getUniformLocation(gpuPrograms.diff,'u_prev'), 1);
+    gl.uniform1f(gl.getUniformLocation(gpuPrograms.diff,'u_thresh'), thresh);
+    gl.uniform1i(gl.getUniformLocation(gpuPrograms.diff,'u_mirror'), mirror ? 1 : 0);
+    
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  } else if (mode === 'gpu-motion-blur') {
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, gpuPrograms.fbAccum);
+    gl.viewport(0, 0, gl.canvas.width,gl.canvas.height);
+    
+    gl.clearColor(0,0,0,0); 
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    gl.useProgram(gpuPrograms.blur);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE); // Pure additive math on floating-point values
+
+    const safeLag = Math.max(1, Math.min(gpuPrograms.maxHistory, lag || 1));
+    const weight = 1.0 / safeLag;
+
+    const uTexLoc = gl.getUniformLocation(gpuPrograms.blur, 'u_tex');
+    const uWeightLoc = gl.getUniformLocation(gpuPrograms.blur, 'u_weight');
+    const uMirrorLoc = gl.getUniformLocation(gpuPrograms.blur, 'u_mirror');
+
+    gl.uniform1f(uWeightLoc, weight);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(uTexLoc, 0);
+
+    // Draw current frame (with mirror option)
+    gl.uniform1i(uMirrorLoc, mirror ? 1 : 0);
+    gl.bindTexture(gl.TEXTURE_2D, gpuPrograms.texCur);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // Accumulate historical frames (unmirrored)
+    gl.uniform1i(uMirrorLoc, mirror ? 1 : 0);
+    for (let j = 1; j < safeLag; j++) {
+      if (gpuPrograms.historyFilled >= j) {
+        const idx = (gpuPrograms.historyIndex - j + gpuPrograms.maxHistory) % gpuPrograms.maxHistory;
+        gl.bindTexture(gl.TEXTURE_2D, gpuPrograms.texHistory[idx]);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+    }
+    gl.disable(gl.BLEND);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    gl.viewport(0, 0, 512,512);
+    
+    gl.clearColor(0,0,0,0); 
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    gl.useProgram(gpuPrograms.copy);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gpuPrograms.texAccum);
+    gl.uniform1i(gl.getUniformLocation(gpuPrograms.copy, 'u_tex'), 0);
+    gl.uniform1i(gl.getUniformLocation(gpuPrograms.copy, 'u_mirror'), 0); // Already handled mirror
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
-  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, prevTex); gl.uniform1i(gl.getUniformLocation(gpuPrograms.diff,'u_prev'), 1);
-  gl.uniform1f(gl.getUniformLocation(gpuPrograms.diff,'u_thresh'), thresh);
-  gl.uniform1i(gl.getUniformLocation(gpuPrograms.diff,'u_mirror'), mirror ? 1 : 0);
-  gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  // copy current into history slot for next frames
+
+  // Copy current frame into history slot for future frames
   gl.bindFramebuffer(gl.FRAMEBUFFER, gpuPrograms.fb);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, gpuPrograms.texHistory[gpuPrograms.historyIndex], 0);
-  // Store amplified or raw current into history depending on feedback
-  // if(feedbackCheckbox && feedbackCheckbox.checked && gpuPrograms.diffAmplify){
-  //   gl.useProgram(gpuPrograms.diffAmplify);
-  //   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, gpuPrograms.texCur); gl.uniform1i(gl.getUniformLocation(gpuPrograms.diffAmplify,'u_cur'), 0);
-  //   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, prevTex); gl.uniform1i(gl.getUniformLocation(gpuPrograms.diffAmplify,'u_prev'), 1);
-  //   gl.uniform1f(gl.getUniformLocation(gpuPrograms.diffAmplify,'u_gain'), Number(gainInput.value) || 1.0);
-  //   gl.uniform1f(gl.getUniformLocation(gpuPrograms.diffAmplify,'u_thresh'), thresh);
-  //   gl.uniform1i(gl.getUniformLocation(gpuPrograms.diffAmplify,'u_mirror'), mirror ? 1 : 0);
-  //   gl.viewport(0,0,procSize,procSize); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  // } else {
-    // Always store history unmirrored; apply mirror at sample time in shader
-    gl.useProgram(gpuPrograms.copy); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, gpuPrograms.texCur); gl.uniform1i(gl.getUniformLocation(gpuPrograms.copy,'u_tex'), 0); gl.uniform1i(gl.getUniformLocation(gpuPrograms.copy,'u_mirror'), 0);
-    gl.viewport(0,0,procSize,procSize); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  // }
+  
+  gl.useProgram(gpuPrograms.copy); 
+  gl.activeTexture(gl.TEXTURE0); 
+  gl.bindTexture(gl.TEXTURE_2D, gpuPrograms.texCur); 
+  gl.uniform1i(gl.getUniformLocation(gpuPrograms.copy,'u_tex'), 0); 
+  gl.uniform1i(gl.getUniformLocation(gpuPrograms.copy,'u_mirror'), 0);
+  
+  gl.viewport(0,0,procSize,procSize); 
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
   gpuPrograms.historyIndex = (gpuPrograms.historyIndex + 1) % gpuPrograms.maxHistory;
   gpuPrograms.historyFilled = Math.min(gpuPrograms.historyFilled + 1, gpuPrograms.maxHistory);
 }
@@ -450,7 +560,17 @@ function gpuProcess(mirror, thresh, lag){ if(!gl) return; ensureGLSize(); // upl
 // populate device list then init GPU and UI
 updateDeviceList().then(async ()=>{
   initWebGL();
-  if(gpuSupported){ const o=document.createElement('option'); o.value='gpu-difference'; o.textContent='GPU-Difference'; modeSelect.appendChild(o); //const o2=document.createElement('option'); o2.value='gpu-fourier'; o2.textContent='GPU Fourier'; modeSelect.appendChild(o2); 
+  if(gpuSupported){ 
+    let o = document.createElement('option');
+    o.value = 'gpu-difference';
+    o.textContent = 'GPU-Difference';
+    modeSelect.appendChild(o); //const o2=document.createElement('option'); o2.value='gpu-fourier'; o2.textContent='GPU Fourier'; modeSelect.appendChild(o2); 
+    
+    o = document.createElement('option');
+    o.value = 'gpu-motion-blur';
+    o.textContent = 'GPU-Motion-Blur';
+    modeSelect.appendChild(o); //const o2=document.createElement('option'); o2.value='gpu-fourier'; o2.textContent='GPU Fourier'; modeSelect.appendChild(o2); 
+  
   }
   // apply saved UI state and then start camera
   const saved = loadSettings(); applySavedSettings(saved);
@@ -526,7 +646,7 @@ function renderLoop(){
     const threshVal = Number(threshInput.value);
     const threshNorm = threshVal / Number(threshInput.max);
 
-    if(mode === 'gpu-difference' && gpuSupported){ const lag = Number(lagInput.value) || 1; gpuProcess(mirrorCheckbox.checked, threshNorm, lag); // copy GPU canvas into motionCanvas
+    if((mode === 'gpu-difference' || mode === 'gpu-motion-blur') && gpuSupported){ const lag = Number(lagInput.value) || 1; gpuProcess(mirrorCheckbox.checked, threshNorm, lag,mode); // copy GPU canvas into motionCanvas
       mctx.clearRect(0,0,motionCanvas.width,motionCanvas.height);
       try{ mctx.save(); mctx.translate(0, motionCanvas.height); mctx.scale(1, -1); mctx.drawImage(glCanvas, 0, 0, motionCanvas.width, motionCanvas.height); mctx.restore(); }catch(e){}
     }
