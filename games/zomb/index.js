@@ -1,3 +1,14 @@
+/*
+  # Todo
+  - Add EXP
+  - Add constrollable reload time, bullets per shoot, shoot range, movement speed, damage, max HP, hp.
+  - Add randomized upgrades
+  - Add gun
+  - Add shadow, going away from player
+  - Make it night w/ shadow going from zombies to edge, light from player.
+  - Create gravestones n dirt n stuff.
+*/
+
 const canvas = document.getElementById('gameCanvas');
 const canvasContainer = document.getElementsByClassName('canvas-container')[0];
 const ctx = canvas.getContext('2d'); // This is your drawing tool
@@ -222,7 +233,7 @@ class Zombie {
     collider = new Vector(25,50);
     rot = 0;
     HP;
-    MaxHP = 2;
+    MaxHP = 5;
     constructor(_pos) {
         this.pos = _pos.copy();
         this.HP = this.MaxHP;
@@ -361,9 +372,9 @@ class Game {
         }
         if ((this.getKeyState('mouse') == "press" || this.getKeyState('mouse') == "hold") && this.player.weaponCooldown == 0) {
             //bullets.push(new Bullet(this.player.pos,this.player.rot));
-            for (let i = 0; i < 1; i++) {
+            for (let i = 0; i < 7; i++) {
                 const start = this.player.pos;
-                const max = Vector.fromPolar(1200,new Vector().angleTo(this.getMousePos()) + (Math.random() - 0.5)*0.05).add(this.player.pos);
+                const max = Vector.fromPolar(1200,new Vector().angleTo(this.getMousePos()) + (Math.random() - 0.5)*0.5).add(this.player.pos);
                 const {pos:end,entity:hit} = this.rayTraceEnemies(start,max);
                 if (hit != null) {
                     hit.damage(1,this.player.pos)
@@ -371,7 +382,7 @@ class Game {
                 const trace = new Trace(start,end,this.player.vel);
                 traces.push(trace)
             }
-            this.player.weaponCooldown = 10;
+            this.player.weaponCooldown = 30;
         }
         if (this.player.weaponCooldown > 0) {
             this.player.weaponCooldown -= 1;
