@@ -7,7 +7,7 @@
    viewBox="0 0 33.866664 42.333333"
    version="1.1"
    id="svg1"
-   inkscape:export-filename="arm2.svg"
+   inkscape:export-filename="gun.svg"
    inkscape:export-xdpi="96"
    inkscape:export-ydpi="96"
    sodipodi:docname="gun.svg"
@@ -214,7 +214,7 @@
     <g
        id="g16"
        transform="rotate(-15.620456,7.0636621,31.469631)"
-       style="display:none">
+       style="display:inline">
       <ellipse
          style="display:inline;fill:#526d7a;fill-opacity:1;stroke-width:2.60445;stroke-linecap:round;stroke-linejoin:round"
          id="path5"
@@ -232,7 +232,7 @@
     <g
        id="g15"
        transform="rotate(34.577044,10.163257,19.065128)"
-       style="display:none">
+       style="display:inline">
       <ellipse
          style="display:inline;fill:#526d7a;fill-opacity:1;stroke-width:2.73087;stroke-linecap:round;stroke-linejoin:round"
          id="ellipse7"
@@ -266,7 +266,7 @@
     <g
        id="g14"
        transform="rotate(43.823877,18.148121,18.396327)"
-       style="display:inline">
+       style="display:none">
       <rect
          style="fill:#787878;fill-opacity:1;stroke-width:2.4972;stroke-linecap:round;stroke-linejoin:round"
          id="rect13"

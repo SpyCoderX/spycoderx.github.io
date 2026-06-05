@@ -5,7 +5,7 @@ const canvasContainer = document.getElementsByClassName('canvas-container')[0];
 const ctx = canvas.getContext('2d'); // This is your drawing tool
 const shadowCanvas = document.createElement("canvas");
 const shadowCtx = shadowCanvas.getContext('2d'); // This is your drawing tool
-const imageList = ["head.svg","body.svg","enemy.svg","exp.svg","gun.svg"]
+const imageList = ["head.svg","body.svg","enemy.svg","exp.svg","gun.svg","arm1.svg","arm2.svg","card.svg","card_back.svg","card_glow.svg"]
 
 let imageLibrary = {};
 imageList.forEach(val => {
@@ -159,6 +159,18 @@ class Vector {
     }
 }
 
+function interpolate(p1,p2,count) {
+    count -= 1; // This way, if count is 2, it becomes one and we loop 0,1
+    // If count is 5, it becomes 4, and we loop 0,1,2,3,4 
+    // This also affects the progress, so for 5 total points (above), we get 0, 0.25, 0.5, 0.75, 1
+    let points = [];
+    for (let i = 0; i <= count; i++) {
+        const progress = (i / count);
+        points.push(p1.mul(1 - progress).add(p2.mul(progress)));
+    }
+    return points
+}
+
 class Trace {
     points = [];
     vels = [];
@@ -190,10 +202,57 @@ class Trace {
     }
     render() {
         if (this.age <= 6) {
-            game.drawLongLine(false,`rgba(250,220,150,0.2)`,[this.points[0],this.points[this.points.length-1]],3 / (this.age / 2)**2);
-            game.drawLongLine(false,`rgba(250,220,150,0.2)`,[this.points[0],this.points[this.points.length-1]],2 / (this.age / 2)**2);
+            game.drawLongLine(false,`rgba(250,220,150,0.2)`,interpolate(this.points[0],this.points[this.points.length-1],25),3 / (this.age / 2)**2);
+            game.drawLongLine(false,`rgba(250,220,150,0.2)`,interpolate(this.points[0],this.points[this.points.length-1],25),2 / (this.age / 2)**2);
         }
         game.drawLongLine(false,`rgba(255,255,255,${1 / (this.age) - (this.age / (this.maxLifetime*this.maxLifetime))})`,this.points,1.3 / this.age + 0.6);
+    }
+}
+
+class PlayerStats {
+    experience = 0;
+    maxExperience = 20;
+    MaxHP = 5;
+    HP = this.MaxHP;
+    level = 0;
+    bullets = 1;
+    spread = 0.05;
+    reload = 20;
+    speed = 1;
+    damage = 1;
+    modify(stat,amount) {
+        switch (stat) {
+            case "spread": this.spread = this.addPossibleStat(stat,amount)
+            case "bullets": this.bullets = this.addPossibleStat(stat,amount)
+            case "reload": this.reload = this.addPossibleStat(stat,amount)
+            case "damage": this.damage = this.addPossibleStat(stat,amount)
+            case "speed": this.speed = this.addPossibleStat(stat,amount)
+            case "HP": this.HP = this.addPossibleStat(stat,amount)
+            case "MaxHP": this.MaxHP = this.addPossibleStat(stat,amount)
+            case "enemyHP": game.enemyHP = this.addPossibleStat(stat,amount)
+            case "enemiesPerMinute": game.enemyPerMinute = this.addPossibleStat(stat,amount)
+        }
+    }
+    addPossibleStat(stat,amount) {
+        switch (stat) {
+            case "spread": return Math.max(this.spread + amount,0)
+            case "bullets": return Math.max(Math.round(this.bullets + amount),1)
+            case "reload": return Math.max(this.reload + amount,0)
+            case "damage": return Math.max(this.damage + amount,1)
+            case "speed": return Math.max(this.speed + amount,0.1)
+            case "HP": return Math.max(Math.round(this.HP + amount),0)
+            case "MaxHP": return Math.max(Math.round(this.MaxHP + amount),1)
+            case "enemyHP": return Math.max(Math.round(game.enemyHP + amount),1)
+            case "enemiesPerMinute": return Math.max(game.enemyPerMinute + amount,1)
+            default: return 0
+        }
+    }
+    getStat(stat) {
+        switch (stat) {
+            case "enemyHP": return game.enemyHP;
+            case "enemiesPerMinute": return game.enemyPerMinute;
+            default: return this[stat];
+        }
     }
 }
 
@@ -205,38 +264,32 @@ class Player {
     collider = new Vector(30,20);
     rot = 0;
     weaponCooldown = 0;
-    HP;
-    MaxHP = 20;
     invulnerabilityTicks = 0;
-    experience = 0;
-    maxExperience = 20;
-    level = 0;
-    bullets = 1;
+    stats = new PlayerStats();
+    recoil = 0;
     constructor() {
-        this.HP = this.MaxHP;
     }
     damage(n) {
         if (this.invulnerabilityTicks > 0){
             return;
         }
-        this.HP -= n;
+        this.stats.HP -= n;
         this.invulnerabilityTicks = 20;
     }
     getMaxExperience() {
-        return this.maxExperience;
+        return this.stats.maxExperience;
     }
 }
 class Zombie {
     pos = new Vector();
     vel = new Vector();
-    size = new Vector(60).mul(1+(game.enemyHP-2)/8);
-    collider = new Vector(25,50).mul(1+(game.enemyHP-2)/8);
     rot = 0;
-    HP;
-    MaxHP = game.enemyHP;
+    MaxHP = Math.round(0.5 * (1 + Math.random()) * game.enemyHP); // Random HP between enemyHP and enemyHP / 2
+    size = new Vector(60).mul(1+(this.MaxHP-2)/8);
+    collider = new Vector(25,50).mul(1+(this.MaxHP-2)/8);
+    HP = this.MaxHP;
     constructor(_pos) {
         this.pos = _pos.copy();
-        this.HP = this.MaxHP;
     }
     damage(n,src,force=3) {
         this.HP -= n;
@@ -277,12 +330,18 @@ class Game {
     paused = false;
     enemyPerMinute = 60;
     enemyHP = 2;
+    mode = "play";
+    cards = [];
 
     getSmoothMousePos() {
-        return this.followMouse.add(this.camera.sub(this.player.pos));
+        return this.followMouse.mul(this.getInverseScale());
     }
     getMousePos() {
-        return this.mouse.add(this.camera.sub(this.player.pos));
+        return this.mouse.mul(this.getInverseScale())//.add(this.camera.sub(this.player.pos));
+    }
+
+    setMode(newMode) {
+        this.mode = newMode;
     }
 
     restart() {
@@ -291,6 +350,24 @@ class Game {
         traces.length = 0;
         this.enemyPerMinute = 60;
         this.enemyHP = 2;
+    }
+
+    openUpgrades() {
+        this.setMode("upgrade");
+        this.cards = [new Card(0), new Card(1), new Card(2)];
+    }
+    levelUp() {
+        this.player.stats.experience = Math.max(this.player.stats.experience - this.player.stats.maxExperience,0);
+        this.player.level += 1;
+        //this.player.bullets += 1;
+        //this.enemyPerMinute *= 1.2;
+        //this.enemyHP += 1;
+        this.player.stats.maxExperience += 10;
+        this.openUpgrades();
+    }
+
+    upgradeTick() {
+        this.cards.forEach(card => card.tick());
     }
 
     update() {
@@ -318,11 +395,19 @@ class Game {
             this.pause = !this.pause;
         }
         const inputMap = new Vector(this.getKey("d") - this.getKey("a"), this.getKey("s") - this.getKey("w"));;
+
         if (this.pause) {
             this.camera.addMe(inputMap.mul(8));
+        }
+
+        if (this.mode == "upgrade") {
+            this.upgradeTick();
+        }
+
+
+        if (this.isPaused()) {
             return;
         }
-        
         this.ticks += 1;
         if (this.ticks%Math.floor(3600/this.enemyPerMinute) == 0) {
             zombies.push(new Zombie(this.player.pos.add(Vector.fromPolar(600,Math.random()*Math.PI*2))))
@@ -333,16 +418,13 @@ class Game {
         this.followMouse.addMe(this.mouse.mul(0.3));
 
         this.player.inputMap = inputMap;
-        this.player.vel.addMe(this.player.inputMap);
+        this.player.vel.addMe(this.player.inputMap.mul(this.player.stats.speed));
         this.player.vel.mulMe(0.8);
         this.player.pos.addMe(this.player.vel);
 
         
 
-        this.player.rot = Math.atan2(
-            this.getSmoothMousePos().y,
-            this.getSmoothMousePos().x
-        )
+        this.player.rot = this.player.pos.sub(this.camera).angleTo(this.getSmoothMousePos())
         
         for (let i = 0; i < zombies.length; i++) {
             const zomb = zombies[i];
@@ -402,7 +484,7 @@ class Game {
             xp.tick();
             if (xp.dead) {
                 exp.splice(i,1);
-                game.player.experience += 1;
+                game.player.stats.experience += 1;
                 i--;
             }
         }
@@ -417,17 +499,18 @@ class Game {
         }
         if ((this.getKeyState('mouse') == "press" || this.getKeyState('mouse') == "hold") && this.player.weaponCooldown == 0) {
             //bullets.push(new Bullet(this.player.pos,this.player.rot));
-            for (let i = 0; i < this.player.bullets; i++) {
-                const start = this.player.pos.add(new Vector(39,7).rotate(this.player.rot));
-                const max = Vector.fromPolar(1200,new Vector().angleTo(this.getMousePos()) + (Math.random() - 0.5)*0.05 * this.player.bullets).add(start);
+            const angle = this.player.pos.sub(this.camera).angleTo(this.getMousePos());
+            for (let i = 0; i < this.player.stats.bullets; i++) {
+                const start = this.player.pos.add(new Vector(39,7).rotate(angle));
+                const max = Vector.fromPolar(1200,angle + (Math.random() - 0.5)*this.player.stats.spread).add(start);
                 const {pos:end,entity:hit} = this.rayTraceEnemies(start,max);
                 if (hit != null) {
-                    hit.damage(1,this.player.pos)
+                    hit.damage(this.player.stats.damage,this.player.pos)
                 }
                 const trace = new Trace(start,end,this.player.vel);
                 traces.push(trace)
             }
-            this.player.weaponCooldown = 10;
+            this.player.weaponCooldown = this.player.stats.reload;
         }
         if (this.player.weaponCooldown > 0) {
             this.player.weaponCooldown -= 1;
@@ -435,19 +518,14 @@ class Game {
         if (this.player.invulnerabilityTicks > 0) {
             this.player.invulnerabilityTicks -= 1;
         }
-        if (this.player.experience >= this.player.maxExperience) {
-            this.player.experience -= this.player.maxExperience;
-            this.player.level += 1;
-            this.player.bullets += 1;
-            this.enemyPerMinute *= 1.2;
-            this.enemyHP += 1;
-            this.player.maxExperience += 10;
+        if (this.player.stats.experience >= this.player.stats.maxExperience) {
+            this.levelUp();
         }
-        if (this.player.HP <= 0) {
+        if (this.player.stats.HP <= 0) {
             this.restart();
         }
     }
-
+    
     rayTraceEnemies(_start,_end) {
         const offsetEnd = _end.sub(_start);
         const lengthSqr = _start.distanceSqr(_end);
@@ -494,17 +572,27 @@ class Game {
         return closest;
     }
 
-    
+    getScale() {
+        return new Vector(Math.pow(10,this.scroll.y / -1000));
+    }
+    getInverseScale() {
+        return new Vector(Math.pow(10,this.scroll.y / 1000));
+    }
 
 
     draw(isUI,image,location,size,rot=0,upwards=false) {
-        if (isUI) location = location.add(this.camera);
         if (image.complete && image.naturalWidth == 0) {
             this.drawBox('red',location,size,rot,upwards);
             return;
         }
         ctx.save();
-        const offset = this.center.add(location).sub(this.camera);
+        const offset = location.copy();
+        if (!isUI) {
+            offset.subMe(this.camera);
+            offset.mulMe(this.getScale());
+            size = size.mul(this.getScale());
+        }
+        offset.addMe(this.center);
         ctx.translate(offset.x,offset.y);
         if (upwards) {
             ctx.rotate(rot+Math.PI/2);
@@ -515,11 +603,51 @@ class Game {
         ctx.drawImage(image,-halfSize.x,-halfSize.y,size.x,size.y);
         ctx.restore();
     }
+    drawTextFill(isUI,text,color,font,location,textAlign="center",textBaseline="top",rot=0,maxWidth=1000) {
+        ctx.save();
+        const offset = location.copy();
+        if (!isUI) {
+            offset.subMe(this.camera);
+            offset.mulMe(this.getScale());
+        }
+        offset.addMe(this.center);
+        ctx.translate(offset.x,offset.y);
+        ctx.rotate(rot);
+        ctx.font = font;
+        ctx.fillStyle = color;
+        ctx.textAlign = textAlign;
+        ctx.textBaseline = textBaseline;
+        ctx.fillText(text,0,0,maxWidth);
+        ctx.restore();
+    }
+    drawText(isUI,text,color,font,location,textAlign="center",textBaseline="top",rot=0,maxWidth=1000) {
+        ctx.save();
+        const offset = location.copy();
+        if (!isUI) {
+            offset.subMe(this.camera);
+            offset.mulMe(this.getScale());
+        }
+        offset.addMe(this.center);
+        ctx.translate(offset.x,offset.y);
+        ctx.rotate(rot);
+        ctx.font = font;
+        ctx.strokeStyle = color;
+        ctx.textAlign = textAlign;
+        ctx.textBaseline = textBaseline;
+        ctx.strokeText(text,0,0,maxWidth);
+        ctx.restore();
+    }
 
     drawBox(isUI,color,location,size,rot=0,upwards=false,width=1) {
-        if (isUI) location = location.add(this.camera);
         ctx.save();
-        const offset = this.center.add(location).sub(this.camera);
+        const offset = location.copy();
+        if (!isUI) {
+            offset.subMe(this.camera);
+            offset.mulMe(this.getScale());
+            size = size.mul(this.getScale());
+            width *= this.getScale().x;
+        }
+        offset.addMe(this.center);
         ctx.translate(offset.x,offset.y);
         if (upwards) {
             ctx.rotate(rot+Math.PI/2);
@@ -532,10 +660,15 @@ class Game {
         ctx.strokeRect(-halfSize.x,-halfSize.y,size.x,size.y);
         ctx.restore();
     }
-    drawBoxFill(isUI,color,location,size,rot=0,upwards=false,width=1) {
-        if (isUI) location = location.add(this.camera);
+    drawBoxFill(isUI,color,location,size,rot=0,upwards=false) {
         ctx.save();
-        const offset = this.center.add(location).sub(this.camera);
+        const offset = location.copy();
+        if (!isUI) {
+            offset.subMe(this.camera);
+            offset.mulMe(this.getScale());
+            size = size.mul(this.getScale());
+        }
+        offset.addMe(this.center);
         ctx.translate(offset.x,offset.y);
         if (upwards) {
             ctx.rotate(rot+Math.PI/2);
@@ -544,52 +677,80 @@ class Game {
         }
         const halfSize = size.div(2);
         ctx.fillStyle = color;
-        ctx.lineWidth = width;
         ctx.fillRect(-halfSize.x,-halfSize.y,size.x,size.y);
         ctx.restore();
     }
     drawCircle(isUI,color,c,radius,width=1) {
         ctx.strokeStyle = color;
         ctx.fillStyle = '';
+        const pos = c.copy();
+        if (!isUI) {
+            pos.subMe(this.camera);
+            pos.mulMe(this.getScale());
+            radius *= this.getScale().x;
+            width *= this.getScale().x;
+        }
+        pos.addMe(this.center);
         ctx.lineWidth = width;
-        const pos = this.center.add(c).sub(this.camera);
-        if (isUI) pos.addMe(this.camera);
         ctx.beginPath();
         ctx.arc(pos.x,pos.y,radius,0,Math.PI*2);
         ctx.stroke();
     }
-     drawCircleFill(isUI,color,c,radius,width=1) {
+     drawCircleFill(isUI,color,c,radius) {
         ctx.fillStyle = color;
         ctx.strokeStyle = '';
-        const pos = this.center.add(c).sub(this.camera);
-        if (isUI) pos.addMe(this.camera);
+        const pos = c.copy();
+        if (!isUI) {
+            pos.subMe(this.camera);
+            pos.mulMe(this.getScale());
+            radius *= this.getScale().x;
+        }
+        pos.addMe(this.center);
         ctx.beginPath();
         ctx.arc(pos.x,pos.y,radius,0,Math.PI*2);
         ctx.fill();
     }
     drawLine(isUI,color,start,end,width=1) {
-        if (isUI) start = start.add(this.camera);
-        if (isUI) end = end.add(this.camera);
         ctx.strokeStyle = color;
+        const offsetStart = start.copy()// this.center.add(start).sub(this.camera);
+        const offsetEnd = end.copy()// this.center.add(end).sub(this.camera);
+        if (!isUI) {
+            offsetStart.subMe(this.camera);
+            offsetEnd.subMe(this.camera);
+            offsetStart.mulMe(this.getScale());
+            offsetEnd.mulMe(this.getScale());
+            width *= this.getScale().x;
+        }
+        offsetStart.addMe(this.center);
+        offsetEnd.addMe(this.center);
         ctx.lineWidth = width;
-        const offsetStart = this.center.add(start).sub(this.camera);
-        const offsetEnd = this.center.add(end).sub(this.camera);
         ctx.beginPath();
         ctx.moveTo(offsetStart.x,offsetStart.y);
         ctx.lineTo(offsetEnd.x,offsetEnd.y);
         ctx.stroke();
     }
     drawLongLine(isUI,color,points,width=1) {
+        const originalPoints = points;
         ctx.strokeStyle = color;
+        const offsetStart = points[0].copy()// this.center.add(start).sub(this.camera);
+        if (!isUI) {
+            offsetStart.subMe(this.camera);
+            offsetStart.mulMe(this.getScale());
+            points = points.map(p => p.sub(this.camera).mul(this.getScale()));
+            width *= this.getScale().x;
+        }
         ctx.lineWidth = width;
-        const offsetStart = this.center.add(points[0]).sub(this.camera);
-        if (isUI) offsetStart.addMe(this.camera);
+        points = points.map(p => p.add(this.center));
+        offsetStart.addMe(this.center);
         ctx.beginPath();
         ctx.moveTo(offsetStart.x,offsetStart.y);
+        let onScreenPrevious = true;
         for (let i = 1; i < points.length; i++) {
-            const point = this.center.add(points[i]).sub(this.camera);
-            if (isUI) point.addMe(this.camera);
-            ctx.lineTo(point.x,point.y);
+            const point = points[i];
+            const onScreen = this.isOnScreen(originalPoints[i]);
+            if (!onScreen && !onScreenPrevious) ctx.moveTo(point.x,point.y);
+            else ctx.lineTo(point.x,point.y);
+            onScreenPrevious = onScreen;
         }
         ctx.stroke();
     }
@@ -599,9 +760,9 @@ class Game {
 
         this.mouse.setMe(
             new Vector(
-                event.clientX - rect.left - this.center.x,
-                event.clientY - rect.top - this.center.y
-            )
+                event.clientX - rect.left,
+                event.clientY - rect.top
+            ).sub(this.center)
         );
 
         
@@ -638,6 +799,13 @@ class Game {
     getKeyState(key) {
         return this.keys[key]?.state ?? "none";
     }
+    isOnScreen(pos) {
+        pos = pos.sub(this.camera).mul(this.getScale()).div(this.center);
+        return Math.abs(pos.x) <= 1 && Math.abs(pos.y) <= 1;
+    }
+    isPaused() {
+        return this.pause || this.mode != "play";
+    }
 }
 
 class ShadowManager {
@@ -646,7 +814,7 @@ class ShadowManager {
         this.shadows.push(new Shadow(p1,p2))
     }
     drawShadows() {
-        const points = [];
+        let points = [];
         for (const shadow of this.shadows) {
             // game.drawLine(false,'rgba(100,100,100,1)',shadow.point1,shadow.point2,2)
             const resultLeft = this.rayTraceShadow(game.player.pos,shadow.point1)
@@ -692,12 +860,14 @@ class ShadowManager {
         shadowCtx.globalCompositeOperation = "destination-out";
         shadowCtx.fillStyle = 'rgba(255,255,255,1)';
         shadowCtx.beginPath();
-        const p0 = game.center.add(points[0]).sub(game.camera);
+        points = points.map(p => p.sub(game.camera).mul(game.getScale()).add(game.center))
+        const p0 = points[0];
         shadowCtx.moveTo(p0.x,p0.y)
         for (let i = 1; i < points.length; i++) {
-            const p = game.center.add(points[i]).sub(game.camera);
+            const p = points[i];
             shadowCtx.lineTo(p.x,p.y);
         }
+
         shadowCtx.closePath();
         shadowCtx.fill();
 
@@ -764,6 +934,151 @@ class Shadow {
     }
 }
 
+class Card {
+    index;
+    time = 0;
+    interpolatedScale = 0;
+    modifier = possibleModifiers[Math.floor(Math.random()*possibleModifiers.length)];
+    constructor(index) {
+        this.index = index;
+    }
+    tick() {
+        this.time++;
+    }
+    render() {
+        const pos = new Vector((this.index - 1) * 500, 0);
+        const size = new Vector(200,300);
+        let scale = 1.2;
+        let useInterpolatedSize = true;
+        let image = imageLibrary["card"];
+        const indexOffset = this.index * 10
+        if (this.time < indexOffset + 30) {
+            let progress = Math.max(this.time - indexOffset,0) / 30;
+            progress = Math.pow(1 - progress, 4);
+            const yDist = 150 + game.center.y;
+            pos.subMe(new Vector(0,yDist * progress))
+        }
+
+        
+        let interactable = false;
+        if (this.time < 50) {
+            image = imageLibrary["card_back"];
+            useInterpolatedSize = false;
+
+        } else if (this.time < 80) {
+            let progress = (this.time - 50) / 30;
+            progress = Math.cos(progress * Math.PI) / -2 + 0.5;
+            if (progress < 0.5) {
+                image = imageLibrary["card_back"];
+                size.mulMe(new Vector(1 - 2 * progress,1))
+            } else { 
+                size.mulMe(new Vector(2 * progress - 1,1))
+            }
+            useInterpolatedSize = false;
+        } else {
+            interactable = true;
+        }
+        if (interactable) {
+            let mouse = game.mouse.copy();
+            mouse.subMe(pos);
+            mouse.divMe(size);
+            const isHovered = Math.abs(mouse.x) < 0.5 && Math.abs(mouse.y) < 0.5;
+            if (isHovered) {
+                scale = 1.5;
+                image = imageLibrary["card_glow"]
+                if (game.getKeyState("mouse") == 'release') {
+                    for (const key in this.modifier) {
+                        if (!game.player.stats.hasOwnProperty(key)) continue;
+                        game.player.stats.modify(key,this.modifier[key]);
+                    }
+                    game.setMode("play")
+                }
+            }
+        }
+        if (useInterpolatedSize) {
+            this.interpolatedScale *= 0.6
+            this.interpolatedScale += scale * 0.4;
+        } else {
+            this.interpolatedScale = scale;
+        }
+        game.draw(true,image,pos,size.mul(new Vector(this.interpolatedScale)))
+        
+        let textAlpha = Math.min(Math.max((this.time - 80) / 20,0), 1);
+        
+        game.drawTextFill(true,this.modifier.name,colorGradient(new Vector(0,0),new Vector(200*this.interpolatedScale,0),`rgba(255,255,255,0)`,`rgba(255,255,255,1)`,textAlpha),`${18*this.interpolatedScale}px monospaced`,pos.sub(size.mul(new Vector(this.interpolatedScale)).div(2)).add(new Vector(35*this.interpolatedScale)),"left","top",0)
+        
+        let i = 1;
+        for (const key in this.modifier) {
+            if (key == "name") continue;
+            let val = this.modifier[key];
+            let sum = game.player.stats.addPossibleStat(key,val);
+            if (typeof val == 'number') {
+                if (val > 0) {
+                    val = `+${val}`;
+                }
+            }
+            if (key == "reload") {
+                val = `${Math.round(val/60 * 100)/100}s (${Math.round(sum/60 * 100)/100}s)`
+            }
+            else if (key == "speed") {
+                val = `${val}x (${sum}x)`
+            }
+            else {
+                val = `${val} (${sum})`
+            }
+            game.drawTextFill(true,`${key.charAt(0).toUpperCase() + key.slice(1)}: ${val}`,colorGradient(new Vector(0,0),new Vector(200*this.interpolatedScale,0),`rgba(255,255,255,0)`,`rgba(255,255,255,1)`,textAlpha),`${14*this.interpolatedScale}px monospaced`,pos.sub(size.mul(new Vector(this.interpolatedScale)).div(2)).add(new Vector(35,40 + i*25).mul(this.interpolatedScale)),"left","top",0)
+            i += 1;
+        }
+    }
+}
+
+
+class CardModifier {
+    name = "";
+    constructor(object) {
+        if (object) {
+            for (const key in object) {
+                this[key] = object[key];
+            }
+        }
+    }
+}
+
+
+
+const possibleModifiers = [
+    new CardModifier({name:"Machine Gun",bullets:1,reload:-10,spread:0.1}),
+    new CardModifier({name:"Sniper",reload:30,spread:-0.3,damage:1}),
+    new CardModifier({name:"Quick Hands",reload:-15,speed:0.25}),
+    new CardModifier({name:"Scattershot",bullets:2,spread:0.12,reload:10}),
+    new CardModifier({name:"Precision",spread:-0.08}),
+    new CardModifier({name:"Heavy Rounds",damage:2,reload:20}),
+    new CardModifier({name:"Lightweight",speed:0.4,MaxHP:-1}),
+    new CardModifier({name:"Fortitude",MaxHP:2,HP:2,speed:-0.15}),
+    new CardModifier({name:"Glass Cannon",damage:3,MaxHP:-2,reload:10,speed:0.15}),
+    new CardModifier({name:"Tough Skin",MaxHP:1,HP:1,reload:5}),
+    new CardModifier({name:"Balanced",bullets:0,spread:-0.02,damage:1,reload:5}),
+
+    // Negative / curse modifiers
+    new CardModifier({name:"Fragile",MaxHP:-2,HP:-2}),
+    new CardModifier({name:"Clumsy",spread:0.2}),
+    new CardModifier({name:"Heavy Weight",speed:-0.3}),
+    new CardModifier({name:"Broken Barrel",damage:-1,reload:15}),
+    new CardModifier({name:"Jam",reload:30}),
+    new CardModifier({name:"Reduced Ammo",bullets:-1}),
+    new CardModifier({name:"Horde's Call",enemyHP:1,enemiesPerMinute:10}),
+    new CardModifier({name:"Glass Shard",MaxHP:-1,damage:-1,speed:-0.1}),
+]
+
+function colorGradient(v1,v2,c1,c2,t) {
+    if (t <= 0.0001) return c1;
+    if (t >= 0.9999) return c2;
+    const gradient = ctx.createLinearGradient(v1.x,v1.y,v2.x,v2.y);
+    gradient.addColorStop(Math.max(t * 2 - 1,0),c2);
+    gradient.addColorStop(Math.min(t,1),c1);
+    return gradient;
+}
+
 game = new Game();
 shadowMan = new ShadowManager();
 
@@ -811,6 +1126,8 @@ function gameLoop() {
     } catch (e) {
         console.error(e);
     }
+    game.drawBox(false,'rgba(255,255,255,0.1)',game.camera,game.center.mul(new Vector(2)).add(new Vector(5)),0,false,5)
+    game.drawBox(false,'rgba(0,0,0,0.2)',game.camera,game.center.mul(new Vector(2)).add(new Vector(5)),0,false,3)
     shadowMan.clearShadows();
     // shadowMan.addShadow(new Vector(100,0),new Vector(0,100))
     // shadowMan.addShadow(new Vector(150,50),new Vector(50,150))
@@ -826,7 +1143,33 @@ function gameLoop() {
         game.draw(false,imageLibrary["exp"],xp.pos,new Vector(24 + 4*xp.getVel().length(),24 - 0.2 * xp.getVel().length()),xp.getVel().angle())
     })
     zombies.forEach(zomb => {
-        if (Math.abs(zomb.pos.x - (game.camera.x)) > game.center.x || Math.abs(zomb.pos.y - (game.camera.y)) > game.center.y) {
+        if (!game.isOnScreen(zomb.pos)) return;
+        game.draw(false,imageLibrary["enemy"],zomb.pos,zomb.size,zomb.rot,true)
+        shadowMan.addShadow(zomb.pos.add(zomb.collider.mul(new Vector(-0.4,0.5)).rotate(zomb.rot)), zomb.pos.add(zomb.collider.mul(new Vector(-0.6,0.3)).rotate(zomb.rot)))
+        shadowMan.addShadow(zomb.pos.add(zomb.collider.mul(new Vector(-0.6,0.3)).rotate(zomb.rot)), zomb.pos.add(zomb.collider.mul(new Vector(-0.6,-0.3)).rotate(zomb.rot)))
+        shadowMan.addShadow(zomb.pos.add(zomb.collider.mul(new Vector(-0.6,-0.3)).rotate(zomb.rot)), zomb.pos.add(zomb.collider.mul(new Vector(-0.4,-0.5)).rotate(zomb.rot)))
+            
+        if (game.getKey("g")) {
+            game.drawCircle(false,'rgba(0,0,0,0.4)',zomb.pos,zomb.collider.length() / 2,2)
+            game.drawBox(false,'rgba(0,0,0,0.4)',zomb.pos,zomb.collider,zomb.rot,false,2)
+            
+        }
+    })
+    shadowMan.drawShadows();
+    traces.forEach(trace => {
+        trace.render();
+    })
+    zombies.forEach(zomb => {
+        if (game.isOnScreen(zomb.pos)) {
+            if (zomb.HP < zomb.MaxHP || zomb.pos.sub(game.camera).distance(game.getMousePos()) < 40) {
+                game.drawBoxFill(false,'rgba(15,40,10,1)',zomb.pos.add(new Vector(0,-40)),new Vector(10*zomb.MaxHP,10))
+                const width = 10 - 2;
+                for (let i = 0; i < zomb.HP; i++) {
+                    const x = (i-zomb.MaxHP/2 + 0.5) * 10;
+                    game.drawBoxFill(false,'rgba(100,200,40,1)',zomb.pos.add(new Vector(x,-40)),new Vector(width,6))
+                }
+            }
+        } else {
             const zRelative = zomb.pos.sub(game.camera);
             let pos;
             const size = game.center.sub(16);
@@ -846,61 +1189,57 @@ function gameLoop() {
             }
             //const pos = Vector.minmax(game.center.mul(-0.5).add(20),zomb.pos.sub(game.camera),game.center.mul(0.5).sub(20));
             //game.drawCircle(true,`rgba(0,255,0,0.1)`,pos,10,2);
-            const dist = game.camera.distance(zomb.pos);
+            const dist = game.camera.distance(zomb.pos) * game.getScale().x;
             game.drawCircleFill(true,`rgba(0,255,0,0.1)`,pos,6000/dist);
             game.drawCircle(true,`rgba(0,255,0,0.1)`,pos,6000/dist,1);
-            
-            
-        } else {
-            game.draw(false,imageLibrary["enemy"],zomb.pos,zomb.size,zomb.rot,true)
-            shadowMan.addShadow(zomb.pos.add(zomb.collider.mul(new Vector(-0.4,0.5)).rotate(zomb.rot)), zomb.pos.add(zomb.collider.mul(new Vector(-0.6,0.3)).rotate(zomb.rot)))
-            shadowMan.addShadow(zomb.pos.add(zomb.collider.mul(new Vector(-0.6,0.3)).rotate(zomb.rot)), zomb.pos.add(zomb.collider.mul(new Vector(-0.6,-0.3)).rotate(zomb.rot)))
-            shadowMan.addShadow(zomb.pos.add(zomb.collider.mul(new Vector(-0.6,-0.3)).rotate(zomb.rot)), zomb.pos.add(zomb.collider.mul(new Vector(-0.4,-0.5)).rotate(zomb.rot)))
-            
         }
-        if (game.getKey("g")) {
-            game.drawCircle(false,'rgba(0,0,0,0.4)',zomb.pos,zomb.collider.length() / 2,2)
-            game.drawBox(false,'rgba(0,0,0,0.4)',zomb.pos,zomb.collider,zomb.rot,false,2)
-            
-        }
+        
     })
-    shadowMan.drawShadows();
-    traces.forEach(trace => {
-        trace.render();
-    })
-    zombies.forEach(zomb => {
-        if (zomb.HP < zomb.MaxHP || zomb.pos.sub(game.camera).distance(game.mouse) < 40) {
-            game.drawBoxFill(false,'rgba(15,40,10,1)',zomb.pos.add(new Vector(0,-40)),new Vector(10*zomb.MaxHP,10))
-            const width = 10 - 2;
-            for (let i = 0; i < zomb.HP; i++) {
-                const x = (i-zomb.MaxHP/2 + 0.5) * 10;
-                game.drawBoxFill(false,'rgba(100,200,40,1)',zomb.pos.add(new Vector(x,-40)),new Vector(width,6))
-            }
-        }
-    })
-    game.draw(false,imageLibrary["gun"],game.player.pos.add(Vector.fromPolar(15,game.mouse.angle())),game.player.size.add(0,32),game.mouse.angle(),true);
-    game.draw(false,imageLibrary["body"],game.player.pos,game.player.size,game.mouse.angle(),true);
+    const playerRot = game.player.pos.sub(game.camera).mul(game.getScale()).angleTo(game.mouse);
+    game.draw(false,imageLibrary["arm1"],game.player.pos.add(Vector.fromPolar(15 - 8 * Math.pow(game.player.weaponCooldown / game.player.stats.reload,2),playerRot)),game.player.size.add(0,32),playerRot,true);
+    game.draw(false,imageLibrary["arm2"],game.player.pos.add(Vector.fromPolar(15 - 8 * Math.pow(game.player.weaponCooldown / game.player.stats.reload,2),playerRot)),game.player.size.add(0,32),playerRot,true);
+    game.draw(false,imageLibrary["gun"],game.player.pos.add(Vector.fromPolar(15 - 5 * Math.pow(game.player.weaponCooldown / game.player.stats.reload,2),playerRot)),game.player.size.add(0,32),playerRot,true);
+    game.draw(false,imageLibrary["body"],game.player.pos,game.player.size,playerRot,true);
     game.draw(false,imageLibrary["head"],game.player.pos,game.player.size,game.player.rot,true);
 
     const hpUnitSize = 40;
-    const width = Math.min(canvas.width * 3/4,game.player.MaxHP*hpUnitSize) / game.player.MaxHP;
-    game.drawBoxFill(true,'rgb(69, 19, 17)',new Vector(0,canvas.height / 2 - (hpUnitSize/2) - 40),new Vector(game.player.MaxHP * width, hpUnitSize));
-    for (let i = 0; i < game.player.HP; i++) {
-        const x = (i-game.player.MaxHP/2 + 0.5) * width;
+    const maxHP = game.player.stats.MaxHP;
+    const HP = game.player.stats.HP;
+    const expRatio = game.player.stats.experience / game.player.getMaxExperience();
+
+    const width = Math.min(canvas.width * 3/4,maxHP*hpUnitSize) / maxHP;
+    game.drawBoxFill(true,'rgb(69, 19, 17)',new Vector(0,canvas.height / 2 - (hpUnitSize/2) - 40),new Vector(maxHP * width, hpUnitSize));
+    for (let i = 0; i < HP; i++) {
+        const x = (i-maxHP/2 + 0.5) * width;
         game.drawBoxFill(true,'rgb(255, 84, 49)',new Vector(x,canvas.height / 2 - (hpUnitSize/2) - 40),new Vector(width-5,hpUnitSize-5))
     }
     if (game.player.invulnerabilityTicks>0) {
-        game.drawBoxFill(true,`rgba(149, 174, 255, ${(game.player.invulnerabilityTicks / 15 - 0.25)})`,new Vector((game.player.HP - game.player.MaxHP/2 + 0.5) * width,canvas.height / 2 - (hpUnitSize/2) - 40),new Vector(width-5,hpUnitSize-5))
+        game.drawBoxFill(true,`rgba(149, 174, 255, ${(game.player.invulnerabilityTicks / 15 - 0.25)})`,new Vector((HP - maxHP/2 + 0.5) * width,canvas.height / 2 - (hpUnitSize/2) - 40),new Vector(width-5,hpUnitSize-5))
     }
-    game.drawBoxFill(true,'rgba(0,0,0,0.1)',new Vector(0,canvas.height / 2 - (hpUnitSize * 1/4) - 40),new Vector(game.player.MaxHP * width, hpUnitSize/2));
-    game.drawBoxFill(true,'rgba(255,255,255,0.05)',new Vector(0,canvas.height / 2 - (hpUnitSize * 3/4) - 40),new Vector(game.player.MaxHP * width, hpUnitSize/2));
+    game.drawBoxFill(true,'rgba(0,0,0,0.1)',new Vector(0,canvas.height / 2 - (hpUnitSize * 1/4) - 40),new Vector(maxHP * width, hpUnitSize/2));
+    game.drawBoxFill(true,'rgba(255,255,255,0.05)',new Vector(0,canvas.height / 2 - (hpUnitSize * 3/4) - 40),new Vector(maxHP * width, hpUnitSize/2));
 
     // EXP Rendering
-    game.drawBoxFill(true,'rgb(13, 36, 35)',new Vector(0,canvas.height / 2 - (hpUnitSize/2) - 45 - hpUnitSize/2),new Vector(game.player.MaxHP * width, 10));
-    game.drawBoxFill(true,'rgb(79, 226, 219)',new Vector(0,canvas.height / 2 - (hpUnitSize/2) - 45 - hpUnitSize/2),new Vector((game.player.MaxHP * width) * game.player.experience / game.player.getMaxExperience(), 8));
-    game.drawBoxFill(true,'rgba(0, 0, 0, 0.13)',new Vector(0,canvas.height / 2 - (hpUnitSize/2) - 43 - hpUnitSize/2),new Vector((game.player.MaxHP * width) * game.player.experience / game.player.getMaxExperience(), 4));
+    game.drawBoxFill(true,'rgb(13, 36, 35)',new Vector(0,canvas.height / 2 - (hpUnitSize/2) - 45 - hpUnitSize/2),new Vector(maxHP * width, 10));
+    game.drawBoxFill(true,'rgb(79, 226, 219)',new Vector(0,canvas.height / 2 - (hpUnitSize/2) - 45 - hpUnitSize/2),new Vector((maxHP * width) * expRatio, 8));
+    game.drawBoxFill(true,'rgba(0, 0, 0, 0.13)',new Vector(0,canvas.height / 2 - (hpUnitSize/2) - 43 - hpUnitSize/2),new Vector((maxHP * width) * expRatio, 4));
 
+    if (game.mode == "upgrade") {
+        game.drawBoxFill(true,'rgba(0,0,0,0.75)',new Vector(),game.center.mul(2))
+        game.cards.forEach(card => card.render());
+    }
+    const stats = game.player.stats;
+    let i = 1;
+    for (const key in stats) {
+        if (key == "maxExperience" || key == "experience") continue;
+        let val = stats[key];
+        if (key == "reload") {
+            val = `${Math.round(val/60 * 100)/100}s`
+        }
 
+        game.drawTextFill(true,`${key.charAt(0).toUpperCase() + key.slice(1)}: ${val}`,`rgba(255,255,255,1)`,`18px monospaced`,game.center.sub(new Vector(5,i * 20)),"right","top",0)
+        i++;
+    }
     
     // 2. Update object positions (e.g., player.x += player.speed)
     //update();
