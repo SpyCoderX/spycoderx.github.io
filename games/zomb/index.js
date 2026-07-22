@@ -222,28 +222,28 @@ class PlayerStats {
     damage = 1;
     modify(stat,amount) {
         switch (stat) {
-            case "spread": this.spread = this.addPossibleStat(stat,amount)
-            case "bullets": this.bullets = this.addPossibleStat(stat,amount)
-            case "reload": this.reload = this.addPossibleStat(stat,amount)
-            case "damage": this.damage = this.addPossibleStat(stat,amount)
-            case "speed": this.speed = this.addPossibleStat(stat,amount)
-            case "HP": this.HP = this.addPossibleStat(stat,amount)
-            case "MaxHP": this.MaxHP = this.addPossibleStat(stat,amount)
-            case "enemyHP": game.enemyHP = this.addPossibleStat(stat,amount)
-            case "enemiesPerMinute": game.enemyPerMinute = this.addPossibleStat(stat,amount)
+            case "spread": this.spread = this.addPossibleStat(stat,amount); break;
+            case "bullets": this.bullets = this.addPossibleStat(stat,amount); break;
+            case "reload": this.reload = this.addPossibleStat(stat,amount); break;
+            case "damage": this.damage = this.addPossibleStat(stat,amount); break;
+            case "speed": this.speed = this.addPossibleStat(stat,amount); break;
+            case "HP": this.HP = this.addPossibleStat(stat,amount); break;
+            case "MaxHP": this.MaxHP = this.addPossibleStat(stat,amount); break;
+            case "enemyHP": game.enemyHP = this.addPossibleStat(stat,amount); break;
+            case "enemiesPerMinute": game.enemyPerMinute = this.addPossibleStat(stat,amount); break;
         }
     }
     addPossibleStat(stat,amount) {
         switch (stat) {
-            case "spread": return Math.max(this.spread + amount,0)
-            case "bullets": return Math.max(Math.round(this.bullets + amount),1)
-            case "reload": return Math.max(this.reload + amount,0)
-            case "damage": return Math.max(this.damage + amount,1)
-            case "speed": return Math.max(this.speed + amount,0.1)
-            case "HP": return Math.max(Math.round(this.HP + amount),0)
-            case "MaxHP": return Math.max(Math.round(this.MaxHP + amount),1)
-            case "enemyHP": return Math.max(Math.round(game.enemyHP + amount),1)
-            case "enemiesPerMinute": return Math.max(game.enemyPerMinute + amount,1)
+            case "spread": return Math.max(this.spread + amount,0);
+            case "bullets": return Math.max(Math.round(this.bullets + amount),1);
+            case "reload": return Math.max(this.reload + amount,0);
+            case "damage": return Math.max(this.damage + amount,1);
+            case "speed": return Math.max(this.speed + amount,0.1);
+            case "HP": return Math.max(Math.round(this.HP + amount),0);
+            case "MaxHP": return Math.max(Math.round(this.MaxHP + amount),1);
+            case "enemyHP": return Math.max(Math.round(game.enemyHP + amount),1);
+            case "enemiesPerMinute": return Math.max(game.enemyPerMinute + amount,1);
             default: return 0
         }
     }
@@ -1196,9 +1196,9 @@ function gameLoop() {
         
     })
     const playerRot = game.player.pos.sub(game.camera).mul(game.getScale()).angleTo(game.mouse);
-    game.draw(false,imageLibrary["arm1"],game.player.pos.add(Vector.fromPolar(15 - 8 * Math.pow(game.player.weaponCooldown / game.player.stats.reload,2),playerRot)),game.player.size.add(0,32),playerRot,true);
-    game.draw(false,imageLibrary["arm2"],game.player.pos.add(Vector.fromPolar(15 - 8 * Math.pow(game.player.weaponCooldown / game.player.stats.reload,2),playerRot)),game.player.size.add(0,32),playerRot,true);
-    game.draw(false,imageLibrary["gun"],game.player.pos.add(Vector.fromPolar(15 - 5 * Math.pow(game.player.weaponCooldown / game.player.stats.reload,2),playerRot)),game.player.size.add(0,32),playerRot,true);
+    game.draw(false,imageLibrary["arm1"],game.player.pos.add(Vector.fromPolar(15 - 8 * Math.pow(game.player.weaponCooldown / Math.max(game.player.stats.reload,1),2),playerRot)),game.player.size.add(0,32),playerRot,true);
+    game.draw(false,imageLibrary["arm2"],game.player.pos.add(Vector.fromPolar(15 - 8 * Math.pow(game.player.weaponCooldown / Math.max(game.player.stats.reload,1),2),playerRot)),game.player.size.add(0,32),playerRot,true);
+    game.draw(false,imageLibrary["gun"],game.player.pos.add(Vector.fromPolar(15 - 5 * Math.pow(game.player.weaponCooldown / Math.max(game.player.stats.reload,1),2),playerRot)),game.player.size.add(0,32),playerRot,true);
     game.draw(false,imageLibrary["body"],game.player.pos,game.player.size,playerRot,true);
     game.draw(false,imageLibrary["head"],game.player.pos,game.player.size,game.player.rot,true);
 
